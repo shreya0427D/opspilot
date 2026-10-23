@@ -23,7 +23,9 @@ export async function api<T = unknown>(path: string, init: { method?: string; bo
   if (!res.ok) {
     const err = data?.error ?? {};
     const detail = err.fields?.length ? `: ${err.fields.map((f: { message: string }) => f.message).join(", ")}` : "";
-    throw new ApiRequestError(`${err.message ?? "Request failed"}${detail}`, res.status, err.code ?? "error", err.fields);
+    // A missing JSON error body means the server crashed before our handler ran (e.g. a deploy problem).
+    const message = err.message ?? `Server error (${res.status}). Please try again in a moment.`;
+    throw new ApiRequestError(`${message}${detail}`, res.status, err.code ?? "error", err.fields);
   }
   return data as T;
 }

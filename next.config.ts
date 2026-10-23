@@ -11,6 +11,10 @@ const nextConfig: NextConfig = {
     },
   },
   serverExternalPackages: ["firebase-admin", "@google-cloud/tasks"],
+  // @google-cloud/tasks loads this file with a dynamic require that tracing can't see.
+  outputFileTracingIncludes: {
+    "/api/**/*": ["./node_modules/@google-cloud/tasks/build/protos/protos.json"],
+  },
   async headers() {
     return [
       {

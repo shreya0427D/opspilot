@@ -14,12 +14,12 @@ function hourInZone(timeZone: string, now: Date) {
  * starts a draft-only collections task. The submission key is per workspace per day, so a
  * repeated or overlapping cron run cannot create a second task.
  */
-export async function runDailyChecks(now = new Date()) {
+export async function runDailyChecks(now = new Date(), opts: { anyHour?: boolean } = {}) {
   const snap = await adminDb().collection("workspaces").where("dailyCheck.enabled", "==", true).get();
   let started = 0;
   for (const doc of snap.docs) {
     const w = doc.data() as Workspace;
-    if (hourInZone(w.timezone, now) !== w.dailyCheck.hourLocal) continue;
+    if (!opts.anyHour && hourInZone(w.timezone, now) !== w.dailyCheck.hourLocal) continue;
     try {
       const { created } = await createTask({
         workspaceId: doc.id,

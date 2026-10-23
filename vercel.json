@@ -1,0 +1,7 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "crons": [
+    { "path": "/api/internal/cron/recover", "schedule": "0 2 * * *" },
+    { "path": "/api/internal/cron/daily?anyHour=1", "schedule": "30 3 * * *" }
+  ]
+}

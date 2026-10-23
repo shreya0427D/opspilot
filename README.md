@@ -73,4 +73,19 @@ gcloud scheduler jobs create http opspilot-recover --schedule="*/10 * * * *" --u
 
 Update `apphosting.yaml` (`NEXT_PUBLIC_APP_URL`, `EMAIL_FROM`), connect the GitHub repo in the Firebase console, and App Hosting deploys from `main`. Roll back by promoting a previous rollout in the console.
 
+## Deploying on Vercel instead
+
+Vercel works too. Background steps then run through authenticated calls to `/api/internal/run-step` (one step per function invocation), and `vercel.json` schedules the recovery sweep and the daily check once a day. Set these Environment Variables in the Vercel project (Production):
+
+| Variable | Value |
+|---|---|
+| `NEXT_PUBLIC_APP_URL` | your production URL, e.g. `https://opspilot-sandy.vercel.app` (not a preview URL — those are behind Deployment Protection) |
+| `NEXT_PUBLIC_FIREBASE_*` (6 values) | from the Firebase web app config |
+| `GEMINI_API_KEY` | one server-only key |
+| `CRON_SECRET` | 32+ random characters (Vercel Cron sends it automatically) |
+| `FIREBASE_ADMIN_CLIENT_EMAIL`, `FIREBASE_ADMIN_PRIVATE_KEY` | from a service-account key (Firebase console → Project settings → Service accounts). Vercel has no Google credentials of its own |
+| `RESEND_API_KEY`, `EMAIL_FROM` | as above |
+
+Do **not** set `NEXT_PUBLIC_USE_EMULATORS` or `TASKS_QUEUE` on Vercel. Add the Vercel domain under Firebase Authentication → Authorized domains. Redeploy after changing variables.
+
 See `docs/IMPLEMENTATION_PLAN.md` for the phased plan.
