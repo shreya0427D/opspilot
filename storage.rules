@@ -1,0 +1,21 @@
+rules_version = '2';
+
+// Clients may only create new invoice uploads inside a workspace they belong to.
+// Files are never read directly by the browser; the server streams them after authorization.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /workspaces/{ws}/uploads/{uploadId}/{fileName} {
+      allow create: if request.auth != null
+        && request.auth.token.email_verified == true
+        && firestore.exists(/databases/(default)/documents/workspaces/$(ws)/members/$(request.auth.uid))
+        && request.resource.size > 0
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('application/pdf|image/png|image/jpeg|image/webp');
+      allow read, update, delete: if false;
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

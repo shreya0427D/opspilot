@@ -1,0 +1,35 @@
+rules_version = '2';
+
+// The browser only ever READS. Every write goes through server route handlers,
+// which use the Admin SDK (bypasses these rules) and authorize explicitly.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isMember(ws) {
+      return verified()
+        && exists(/databases/$(database)/documents/workspaces/$(ws)/members/$(request.auth.uid));
+    }
+
+    match /users/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /workspaces/{ws} {
+      allow read: if isMember(ws);
+      allow write: if false;
+
+      match /{document=**} {
+        allow read: if isMember(ws);
+        allow write: if false;
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -1,0 +1,32 @@
+# Firebase App Hosting configuration (beta project).
+# Secrets live in Cloud Secret Manager:  firebase apphosting:secrets:set <name>
+runConfig:
+  minInstances: 0
+  maxInstances: 2
+  concurrency: 40
+  cpu: 1
+  memoryMiB: 1024
+
+env:
+  - variable: NEXT_PUBLIC_APP_URL
+    value: https://REPLACE_WITH_BACKEND_URL
+  - variable: NEXT_PUBLIC_USE_EMULATORS
+    value: "false"
+  - variable: GEMINI_API_KEY
+    secret: gemini-api-key
+    availability: [RUNTIME]
+  - variable: RESEND_API_KEY
+    secret: resend-api-key
+    availability: [RUNTIME]
+  - variable: EMAIL_FROM
+    value: reminders@REPLACE_WITH_VERIFIED_DOMAIN
+    availability: [RUNTIME]
+  - variable: CRON_SECRET
+    secret: cron-secret
+    availability: [RUNTIME]
+  - variable: TASKS_QUEUE
+    value: projects/opspilot-28504/locations/us-central1/queues/opspilot-steps
+    availability: [RUNTIME]
+  - variable: TASKS_INVOKER_SA
+    value: opspilot-tasks@opspilot-28504.iam.gserviceaccount.com
+    availability: [RUNTIME]

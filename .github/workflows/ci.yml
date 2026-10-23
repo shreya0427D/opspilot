@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      NEXT_PUBLIC_USE_EMULATORS: "true"
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: demo-opspilot
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: demo-opspilot.appspot.com
+      NEXT_PUBLIC_FIREBASE_API_KEY: demo-key
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: demo-opspilot.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_APP_ID: demo-app
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "0"
+      GEMINI_API_KEY: ci-placeholder-key-not-used-by-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run test:emulator
+      - run: npm run build
