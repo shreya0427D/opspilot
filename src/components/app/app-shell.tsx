@@ -62,7 +62,7 @@ function ThemeToggle() {
 }
 
 export function AppShell({ children }: { children: ReactNode }) {
-  const { user, ready, workspace, signOut } = useAuth();
+  const { user, ready, workspace, dataError, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
 
@@ -138,7 +138,19 @@ export function AppShell({ children }: { children: ReactNode }) {
             <kbd className="hidden rounded border bg-background px-1.5 text-[10px] font-medium sm:inline">Ctrl K</kbd>
           </button>
         </header>
-        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="flex-1 px-4 py-6 sm:px-6 lg:px-8">
+          {dataError && (
+            <div role="alert" className="mx-auto mb-6 max-w-6xl rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm">
+              <p className="font-medium text-destructive">Your data can&apos;t be loaded.</p>
+              <p className="mt-1 text-muted-foreground">
+                {dataError === "permission-denied"
+                  ? "The database refused access. This usually means the Firestore security rules haven't been deployed to this Firebase project yet (see README → Deploying)."
+                  : dataError}
+              </p>
+            </div>
+          )}
+          {children}
+        </main>
       </div>
       <CommandBar open={commandOpen} onOpenChange={setCommandOpen} />
     </div>

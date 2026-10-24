@@ -13,6 +13,8 @@ interface AuthState {
   ready: boolean;
   workspaceId: string | null;
   workspace: Workspace | null;
+  /** Set when the browser can't read the user's data (e.g. security rules deny it). */
+  dataError: string | null;
   signOut: () => Promise<void>;
 }
 
@@ -24,6 +26,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [ready, setReady] = useState(false);
   const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
+  const [dataError, setDataError] = useState<string | null>(null);
 
   useEffect(() => {
     const { auth } = firebase();
@@ -42,15 +45,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { db } = firebase();
     return onSnapshot(
       doc(db, `users/${user.uid}`),
-      (snap) => setWorkspaceId((snap.get("defaultWorkspaceId") as string) ?? null),
-      () => setWorkspaceId(null),
+      (snap) => {
+        setDataError(null);
+        setWorkspaceId((snap.get("defaultWorkspaceId") as string) ?? null);
+      },
+      (err) => {
+        setWorkspaceId(null);
+        setDataError(err.code === "permission-denied" ? "permission-denied" : err.message);
+      },
     );
   }, [user]);
 
   useEffect(() => {
     if (!workspaceId) return;
     const { db } = firebase();
-    return onSnapshot(doc(db, `workspaces/${workspaceId}`), (snap) => setWorkspace((snap.data() as Workspace) ?? null));
+    return onSnapshot(
+      doc(db, `workspaces/${workspaceId}`),
+      (snap) => setWorkspace((snap.data() as Workspace) ?? null),
+      (err) => setDataError(err.code === "permission-denied" ? "permission-denied" : err.message),
+    );
   }, [workspaceId]);
 
   const signOut = useCallback(async () => {
@@ -60,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [router]);
 
   return (
-    <AuthContext.Provider value={{ user, ready, workspaceId, workspace, signOut }}>{children}</AuthContext.Provider>
+    <AuthContext.Provider value={{ user, ready, workspaceId, workspace, dataError, signOut }}>{children}</AuthContext.Provider>
   );
 }
 
