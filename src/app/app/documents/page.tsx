@@ -3,7 +3,7 @@
 import { orderBy } from "firebase/firestore";
 import { ExternalLinkIcon, FileUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page-header";
 import { useAuth, useWsPath } from "@/components/providers/auth-provider";
@@ -137,6 +137,7 @@ function Documents() {
   return (
     <div className="mx-auto max-w-5xl">
       <PageHeader title="Documents" description="Upload invoices as PDF or images. Each one is read, checked, and added to your invoices." />
+      <StorageStatus />
 
       <div
         onDragOver={(e) => {
@@ -262,5 +263,46 @@ function Documents() {
         </div>
       )}
     </div>
+  );
+}
+
+type StorageStatusResult = {
+  present: Record<string, boolean>;
+  initialized: boolean;
+  initError?: string;
+  deployment: { env: string; commit: string | null };
+};
+
+/**
+ * Storage diagnostic, fetched with the app's own same-origin request (the session cookie is
+ * SameSite=Strict, so opening the API URL from another site arrives without it). Shows only
+ * whether each key has a value, never the value.
+ */
+function StorageStatus() {
+  const [status, setStatus] = useState<StorageStatusResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    api<StorageStatusResult>("/api/storage-status").then(setStatus, (err) => setError(errorMessage(err)));
+  }, []);
+  return (
+    <details className="mb-4 rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+      <summary className="cursor-pointer select-none">
+        Storage status:{" "}
+        {error ? `couldn't check (${error})` : !status ? "checking…" : status.initialized ? "ready" : "not ready"}
+      </summary>
+      {status && (
+        <ul className="mt-2 space-y-0.5 font-mono">
+          {Object.entries(status.present).map(([name, has]) => (
+            <li key={name}>
+              {name}: {has ? "present" : "not set"}
+            </li>
+          ))}
+          <li>storage initialized: {status.initialized ? "yes" : `no${status.initError ? ` (${status.initError})` : ""}`}</li>
+          <li>
+            deployment: {status.deployment.env} @ {status.deployment.commit ?? "unknown"}
+          </li>
+        </ul>
+      )}
+    </details>
   );
 }
