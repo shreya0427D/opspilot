@@ -31,6 +31,7 @@ const ENV_KEYS = [
   "EDGESTORE_ACCESS_KEY",
   "EDGESTORE_SECRET_KEY",
   "EMAIL_FROM",
+  "EMAIL_TEST_RECIPIENT",
   "TASKS_QUEUE",
 ];
 
@@ -67,7 +68,7 @@ export async function GET(req: NextRequest) {
   if (envCheck === "ok") {
     const { emailConfig } = await import("@/lib/server/email");
     const c = emailConfig();
-    email = c.ok ? "ok" : `NOT READY: ${c.reason}`;
+    email = c.ok ? c.mode : `NOT READY: ${c.reason}`;
   }
   const healthy = Object.values(modules).every((v) => v === "ok") && envCheck === "ok";
   const body = authorized(req)

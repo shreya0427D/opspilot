@@ -262,6 +262,10 @@ export interface ApprovalItem {
   status: ApprovalItemStatus;
   sendKey: string;
   providerMessageId: string | null;
+  /** Where the email actually went (differs from `to` in testing mode). */
+  deliveredTo?: string | null;
+  /** Sent in Resend testing mode: delivered to the owner, not the client. */
+  testMode?: boolean;
   /** Last delivery event reported by the email provider (e.g. "delivered", "bounced"). */
   providerStatus?: string | null;
   error: string | null;

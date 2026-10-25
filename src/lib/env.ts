@@ -13,6 +13,8 @@ const serverEnvSchema = z.object({
 
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
+  // Testing mode (EMAIL_FROM=onboarding@resend.dev): the Resend account's own email address.
+  EMAIL_TEST_RECIPIENT: z.string().optional(),
 
   // Internal endpoints (Cloud Tasks / Scheduler). OIDC in production; shared secret as local fallback.
   CRON_SECRET: z.string().min(32).optional().or(z.literal("").transform(() => undefined)),

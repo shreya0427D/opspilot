@@ -6,5 +6,7 @@ import { requireWorkspace } from "@/lib/server/session";
 export const GET = handler(async () => {
   await requireWorkspace();
   const config = emailConfig();
-  return ok(config.ok ? { ok: true } : { ok: false, reason: config.reason });
+  if (!config.ok) return ok({ ok: false, mode: "blocked", reason: config.reason });
+  if (config.mode === "testing") return ok({ ok: true, mode: "testing", testRecipient: config.testRecipient });
+  return ok({ ok: true, mode: "production" });
 });

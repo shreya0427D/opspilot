@@ -41,10 +41,10 @@ export default function ApprovalPage() {
   const [edits, setEdits] = useState<Record<string, Decision>>({});
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [sender, setSender] = useState<{ ok: boolean; reason?: string } | null>(null);
+  const [sender, setSender] = useState<{ ok: boolean; mode?: "production" | "testing" | "blocked"; reason?: string; testRecipient?: string } | null>(null);
 
   useEffect(() => {
-    api<{ ok: boolean; reason?: string }>("/api/email-status")
+    api<{ ok: boolean; mode?: "production" | "testing" | "blocked"; reason?: string; testRecipient?: string }>("/api/email-status")
       .then(setSender)
       .catch(() => setSender({ ok: false, reason: "Couldn't check whether email sending is set up" }));
   }, []);
@@ -121,6 +121,14 @@ export default function ApprovalPage() {
           </AlertDescription>
         </Alert>
       )}
+      {pending && sender?.mode === "testing" && (
+        <Alert className="border-warning/40">
+          <AlertDescription>
+            <span className="font-medium">Testing mode.</span> Approved emails are delivered to {sender.testRecipient}, not to your
+            clients, and are marked as tests. To email clients, verify your own domain in Resend and set EMAIL_FROM to an address on it.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {approval.data.skipped?.length > 0 && (
         <Alert>
@@ -142,6 +150,7 @@ export default function ApprovalPage() {
               <StatusBadge status={it.stage} />
               {it.isSample && <StatusBadge status="sample" />}
               {!pending && <StatusBadge status={it.status === "sent" && it.providerStatus ? it.providerStatus : it.status} className="ml-auto" />}
+              {!pending && it.testMode && <span className="text-xs text-warning">Test → {it.deliveredTo}</span>}
               {pending && (
                 <div className="ml-auto flex gap-1" role="group" aria-label="Decision">
                   <Button
@@ -192,7 +201,9 @@ export default function ApprovalPage() {
           <DialogHeader>
             <DialogTitle>{approved.length ? `Send ${approved.length} email${approved.length === 1 ? "" : "s"}?` : "Reject every email?"}</DialogTitle>
             <DialogDescription>
-              {approved.length
+              {approved.length && sender?.mode === "testing"
+                ? `Testing mode: each email will be delivered to ${sender.testRecipient} (not to the client), labelled with the client it would go to. Nothing reaches your clients.`
+                : approved.length
                 ? `They will be sent as “${workspace?.senderName} via OpsPilot”, with replies going to ${workspace?.replyToEmail}. Total requested: ${Object.entries(approvedTotals)
                     .map(([c, m]) => money(m, c))
                     .join(", ")}. This can't be undone.`

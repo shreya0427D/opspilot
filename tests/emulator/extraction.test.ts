@@ -13,7 +13,7 @@ vi.mock("@/lib/ai/prompts", () => ({
   answerDocumentQuestion: vi.fn(),
 }));
 vi.mock("@/lib/server/email", () => ({
-  emailConfig: vi.fn(() => ({ ok: true, from: "reminders@ops.test" })),
+  emailConfig: vi.fn(() => ({ ok: true, mode: "production", from: "reminders@ops.test" })),
   sendEmail: vi.fn(),
   lookupEmail: vi.fn(async () => ({ lastEvent: "delivered" })),
 }));
@@ -110,7 +110,7 @@ beforeEach(async () => {
   await clearEmulator();
   vi.mocked(sendEmail).mockReset();
   vi.mocked(extractInvoice).mockReset();
-  vi.mocked(emailConfig).mockReturnValue({ ok: true, from: "reminders@ops.test" });
+  vi.mocked(emailConfig).mockReturnValue({ ok: true, mode: "production", from: "reminders@ops.test" });
   await seedWorkspace(WS);
   await seedWorkspace(OTHER_WS);
 });
@@ -216,7 +216,7 @@ describe("email safeguards", () => {
 
   it("refuses approval with an actionable reason when the sender isn't configured", async () => {
     const { task, itemId } = await draftOne();
-    vi.mocked(emailConfig).mockReturnValue({ ok: false, reason: "EMAIL_FROM uses gmail.com, which can't be verified in Resend" });
+    vi.mocked(emailConfig).mockReturnValue({ ok: false, mode: "blocked", reason: "EMAIL_FROM uses gmail.com, which can't be verified in Resend" });
     await expect(decideApproval(ctx, task.approvalId!, { items: [{ itemId, decision: "approve" }] })).rejects.toThrow(/gmail\.com/);
     expect(sendEmail).not.toHaveBeenCalled();
   });

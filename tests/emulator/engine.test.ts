@@ -13,7 +13,7 @@ vi.mock("@/lib/ai/prompts", () => ({
   answerDocumentQuestion: vi.fn(),
 }));
 vi.mock("@/lib/server/email", () => ({
-  emailConfig: () => ({ ok: true, from: "reminders@ops.test" }),
+  emailConfig: () => ({ ok: true, mode: "production", from: "reminders@ops.test" }),
   sendEmail: vi.fn(),
   lookupEmail: vi.fn(async () => ({ lastEvent: "delivered" })),
 }));
@@ -109,7 +109,7 @@ describe("collections workflow", () => {
     expect(draft.body).toContain("INV-1");
     expect(draft.verification.ok).toBe(true);
 
-    vi.mocked(sendEmail).mockResolvedValue({ kind: "sent", providerMessageId: "msg_1" });
+    vi.mocked(sendEmail).mockResolvedValue({ kind: "sent", providerMessageId: "msg_1", deliveredTo: "ap@acme.test", testMode: false });
     await decideApproval(ctx, task.approvalId!, { items: [{ itemId: draft.id, decision: "approve" }] });
     const done = await waitFor(taskId, ["succeeded", "partially_succeeded", "failed"]);
 
@@ -146,7 +146,7 @@ describe("collections workflow", () => {
     const [draft] = await items(task.approvalId!);
     vi.mocked(sendEmail)
       .mockResolvedValueOnce({ kind: "retry", message: "rate limited" })
-      .mockResolvedValueOnce({ kind: "sent", providerMessageId: "msg_2" });
+      .mockResolvedValueOnce({ kind: "sent", providerMessageId: "msg_2", deliveredTo: "ap@acme.test", testMode: false });
     await decideApproval(ctx, task.approvalId!, { items: [{ itemId: draft.id, decision: "approve" }] });
     const done = await waitFor(taskId, ["succeeded", "partially_succeeded", "failed"], 20_000);
     expect(done.status).toBe("succeeded");

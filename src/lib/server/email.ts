@@ -17,36 +17,55 @@ const FREE_MAIL_DOMAINS = new Set([
   "protonmail.com",
 ]);
 
-export type EmailConfig = { ok: true; from: string } | { ok: false; reason: string };
+/** Resend's shared testing sender: works without a verified domain, but only delivers to the
+ * email address of the Resend account itself. */
+export const RESEND_TEST_SENDER = "onboarding@resend.dev";
+
+export type EmailConfig =
+  | { ok: true; mode: "production"; from: string }
+  /** Testing: every approved email is delivered to `testRecipient` (the owner), never to clients. */
+  | { ok: true; mode: "testing"; from: string; testRecipient: string }
+  | { ok: false; mode: "blocked"; reason: string };
 
 const PLAIN_ADDRESS = /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i;
 
+const blocked = (reason: string): EmailConfig => ({ ok: false, mode: "blocked", reason });
+
 /** Pure check of the sender settings, so it can be unit-tested and shown to the user. */
-export function checkEmailConfig(apiKey: string | undefined, from: string | undefined): EmailConfig {
-  if (!apiKey) return { ok: false, reason: "Email sending isn't set up: RESEND_API_KEY is missing" };
-  if (!apiKey.startsWith("re_")) return { ok: false, reason: "Email sending isn't set up: RESEND_API_KEY doesn't look like a Resend key" };
-  if (!from) return { ok: false, reason: "Email sending isn't set up: EMAIL_FROM is missing" };
+export function checkEmailConfig(apiKey: string | undefined, from: string | undefined, testRecipient?: string): EmailConfig {
+  if (!apiKey) return blocked("Email sending isn't set up: RESEND_API_KEY is missing.");
+  if (!apiKey.startsWith("re_")) return blocked("Email sending isn't set up: RESEND_API_KEY doesn't look like a Resend key.");
+  if (!from) return blocked("Email sending isn't set up: EMAIL_FROM is missing.");
   const address = from.trim();
   if (!PLAIN_ADDRESS.test(address)) {
-    return { ok: false, reason: "EMAIL_FROM must be a plain address like reminders@yourdomain.com (the sender name is added automatically)" };
+    return blocked("EMAIL_FROM must be a plain address like reminders@yourdomain.com (the sender name is added automatically).");
+  }
+  if (address.toLowerCase() === RESEND_TEST_SENDER) {
+    const to = testRecipient?.trim();
+    if (!to || !PLAIN_ADDRESS.test(to)) {
+      return blocked("Testing mode needs EMAIL_TEST_RECIPIENT set to the email address of your Resend account.");
+    }
+    return { ok: true, mode: "testing", from: address, testRecipient: to };
   }
   const domain = address.split("@")[1].toLowerCase();
   if (FREE_MAIL_DOMAINS.has(domain)) {
-    return { ok: false, reason: `EMAIL_FROM uses ${domain}, which can't be verified in Resend. Use an address on a domain you own and have verified in Resend` };
+    return blocked(
+      `EMAIL_FROM uses ${domain}, which Resend can't send from. To test now, set EMAIL_FROM=${RESEND_TEST_SENDER} and EMAIL_TEST_RECIPIENT to your Resend account's email. To email clients, verify a domain you own in Resend and use an address on it.`,
+    );
   }
-  return { ok: true, from: address };
+  return { ok: true, mode: "production", from: address };
 }
 
 export function emailConfig(): EmailConfig {
-  const { RESEND_API_KEY, EMAIL_FROM } = env();
-  return checkEmailConfig(RESEND_API_KEY, EMAIL_FROM);
+  const { RESEND_API_KEY, EMAIL_FROM, EMAIL_TEST_RECIPIENT } = env();
+  return checkEmailConfig(RESEND_API_KEY, EMAIL_FROM, EMAIL_TEST_RECIPIENT);
 }
 
 let resend: Resend | null = null;
 const client = () => (resend ??= new Resend(env().RESEND_API_KEY));
 
 export type SendOutcome =
-  | { kind: "sent"; providerMessageId: string }
+  | { kind: "sent"; providerMessageId: string; deliveredTo: string; testMode: boolean }
   | { kind: "rejected"; message: string } // permanent: do not retry
   | { kind: "retry"; message: string }; // transient: safe to retry with the same idempotency key
 
@@ -63,18 +82,25 @@ export async function sendEmail(input: {
   const config = emailConfig();
   if (!config.ok) return { kind: "rejected", message: config.reason };
   const safeName = input.fromName.replace(/[<>"\r\n]/g, "").slice(0, 60);
+  // Testing mode never contacts clients: the owner receives the email, clearly labelled.
+  const testMode = config.mode === "testing";
+  const to = testMode ? config.testRecipient : input.to;
+  const subject = testMode ? `[TEST — would go to ${input.to}] ${input.subject}` : input.subject;
+  const text = testMode
+    ? `This is an OpsPilot test email. In production it would be sent to ${input.to}.\n\n---\n\n${input.text}`
+    : input.text;
   try {
     const { data, error } = await client().emails.send(
       {
         from: `${safeName} via OpsPilot <${config.from}>`,
-        to: input.to,
+        to,
         replyTo: input.replyTo,
-        subject: input.subject,
-        text: input.text,
+        subject,
+        text,
       },
       { idempotencyKey: input.idempotencyKey },
     );
-    if (data) return { kind: "sent", providerMessageId: data.id };
+    if (data) return { kind: "sent", providerMessageId: data.id, deliveredTo: to, testMode };
     if (error && TRANSIENT.has(error.name)) return { kind: "retry", message: error.message };
     return { kind: "rejected", message: error?.message ?? "Email provider rejected the message" };
   } catch (err) {

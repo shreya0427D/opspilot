@@ -90,6 +90,8 @@ registerTool({
           tx.update(doc.ref, {
             status: "sent",
             providerMessageId: outcome.providerMessageId,
+            deliveredTo: outcome.deliveredTo,
+            testMode: outcome.testMode,
             sentAt: FieldValue.serverTimestamp(),
             error: null,
           });
@@ -98,7 +100,7 @@ registerTool({
             lastRemindedAt: FieldValue.serverTimestamp(),
             updatedAt: FieldValue.serverTimestamp(),
           });
-          await audit(ctx.workspaceId, "system", "email.sent", `invoices/${claim.invoiceId}`, {
+          await audit(ctx.workspaceId, "system", outcome.testMode ? "email.sent_test" : "email.sent", `invoices/${claim.invoiceId}`, {
             approvalId,
             itemId: doc.id,
             providerMessageId: outcome.providerMessageId,
@@ -135,7 +137,9 @@ registerTool({
 
     for (const doc of itemsSnap.docs) {
       const item = doc.data() as ApprovalItem;
-      const label = `${formatMinor(item.amountDueMinor, item.currency)} reminder to ${item.to}`;
+      const label = item.testMode
+        ? `TEST: ${formatMinor(item.amountDueMinor, item.currency)} reminder for ${item.to}, delivered to ${item.deliveredTo} (not the client)`
+        : `${formatMinor(item.amountDueMinor, item.currency)} reminder to ${item.to}`;
       switch (item.status) {
         case "sent": {
           // Confirm with the provider instead of trusting our own record.
