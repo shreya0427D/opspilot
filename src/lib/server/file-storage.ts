@@ -1,6 +1,7 @@
 import "server-only";
 import type { DocumentRecord } from "@/lib/domain/types";
-import { edgeStoreRouter } from "@/lib/edgestore/router";
+import { missingEdgeStoreVars } from "@/lib/edgestore/credentials";
+import { getEdgeStoreRouter } from "@/lib/edgestore/router";
 import { adminBucket } from "@/lib/firebase/admin";
 import { AppError, forbidden, notFound } from "./errors";
 
@@ -8,15 +9,34 @@ import { AppError, forbidden, notFound } from "./errors";
 // private EdgeStore bucket; older records may still point at Firebase Storage.
 
 const SIGNED_URL_TTL_SECONDS = 60;
-const files = () => edgeStoreRouter.client.invoiceFiles;
+function files() {
+  const router = getEdgeStoreRouter();
+  if (!router) assertConfigured();
+  return router!.client.invoiceFiles;
+}
 
 export function edgeStoreConfigured() {
-  return !!process.env.EDGESTORE_ACCESS_KEY && !!process.env.EDGESTORE_SECRET_KEY;
+  return missingEdgeStoreVars().length === 0;
 }
 
 function assertConfigured() {
-  if (!edgeStoreConfigured()) {
-    throw new AppError(503, "storage_not_configured", "File storage isn't configured (EDGESTORE_ACCESS_KEY / EDGESTORE_SECRET_KEY).");
+  const missing = missingEdgeStoreVars();
+  if (missing.length) {
+    throw new AppError(503, "storage_not_configured", `File storage isn't configured on the server (missing ${missing.join(" and ")}).`);
+  }
+}
+
+/** Freshly uploaded files can 404 briefly while EdgeStore finishes processing them. */
+async function retryWhileProcessing<T>(fn: () => Promise<T>, attempts = 6, delayMs = 1500): Promise<T> {
+  for (let i = 1; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const text = String((err as { message?: string })?.message ?? err);
+      const notReady = /404|not.?found|processing/i.test(text);
+      if (!notReady || i >= attempts) throw err;
+      await new Promise((r) => setTimeout(r, delayMs));
+    }
   }
 }
 
@@ -29,7 +49,7 @@ export async function verifyUploadedFile(workspaceId: string, documentId: string
   assertConfigured();
   let record: { size: number; path: Record<string, string | undefined> };
   try {
-    record = (await files().get({ url })) as unknown as typeof record;
+    record = (await retryWhileProcessing(() => files().get({ url }))) as unknown as typeof record;
   } catch {
     throw notFound("Uploaded file not found");
   }
@@ -39,10 +59,12 @@ export async function verifyUploadedFile(workspaceId: string, documentId: string
 
 async function downloadEdgeStore(url: string): Promise<Buffer> {
   assertConfigured();
-  const { signedUrl } = (await files().createSignedUrl({ url, expiresIn: SIGNED_URL_TTL_SECONDS })) as { signedUrl: string };
-  const res = await fetch(signedUrl, { signal: AbortSignal.timeout(30_000) });
-  if (!res.ok) throw new AppError(502, "storage_read_failed", `Couldn't read the stored file (HTTP ${res.status})`);
-  return Buffer.from(await res.arrayBuffer());
+  return retryWhileProcessing(async () => {
+    const { signedUrl } = (await files().createSignedUrl({ url, expiresIn: SIGNED_URL_TTL_SECONDS })) as { signedUrl: string };
+    const res = await fetch(signedUrl, { signal: AbortSignal.timeout(30_000) });
+    if (!res.ok) throw new AppError(502, "storage_read_failed", `Couldn't read the stored file (HTTP ${res.status})`);
+    return Buffer.from(await res.arrayBuffer());
+  });
 }
 
 export function downloadByUrl(url: string) {

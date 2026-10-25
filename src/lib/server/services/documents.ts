@@ -83,10 +83,11 @@ export async function finalizeUploads(ctx: WorkspaceContext, files: FinalizeFile
         base.error = "This exact file was already uploaded";
       }
     }
-    // Rejected files are removed; accepted ones are confirmed so the temporary upload is kept.
+    // Save the record first, then confirm the temporary upload (a failed save leaves it temporary
+    // so it expires). Rejected files are deleted instead.
+    await docRef.set({ ...base, createdAt: FieldValue.serverTimestamp() });
     if (base.status === "rejected") await deleteUploadByUrl(f.fileUrl);
     else await confirmUpload(f.fileUrl);
-    await docRef.set({ ...base, createdAt: FieldValue.serverTimestamp() });
     await audit(ctx.workspaceId, ctx.uid, "document.uploaded", `documents/${f.documentId}`, { status: base.status });
     results.push({ documentId: f.documentId, fileName: base.fileName, status: base.status, reason: base.error });
     if (base.status === "uploaded") accepted.push(f.documentId);
