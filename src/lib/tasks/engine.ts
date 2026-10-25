@@ -59,6 +59,7 @@ function newStepDoc(
     attempt: 0,
     maxAttempts: tool.maxAttempts,
     leaseUntil: status === "queued" ? Timestamp.fromMillis(Date.now() + LEASE_MS) : null,
+    queuedAt: status === "queued" ? Timestamp.now() : null,
     output: null,
     error: null,
     verification: null,
@@ -264,7 +265,12 @@ export async function runStep(ref: StepRef): Promise<void> {
     log.warn("Step failed", { ...ref, tool: step.tool, attempt: step.attempt, permanent, err });
     if (permanent || step.attempt >= step.maxAttempts) return fail(message);
     const backoff = Math.min(60_000, 2_000 * 2 ** (step.attempt - 1));
-    await sRef.update({ status: "queued", error: message, leaseUntil: Timestamp.fromMillis(Date.now() + backoff + LEASE_MS) });
+    await sRef.update({
+      status: "queued",
+      error: message,
+      leaseUntil: Timestamp.fromMillis(Date.now() + backoff + LEASE_MS),
+      queuedAt: Timestamp.fromMillis(Date.now() + backoff),
+    });
     await dispatchStep(ref, backoff);
     return;
   }
@@ -337,6 +343,7 @@ export async function advance(ref: StepRef): Promise<void> {
       tx.update(doc.ref, {
         status: next,
         leaseUntil: next === "queued" ? Timestamp.fromMillis(Date.now() + LEASE_MS) : null,
+        ...(next === "queued" ? { queuedAt: Timestamp.now() } : {}),
         ...(next !== "queued" ? { endedAt: FieldValue.serverTimestamp() } : {}),
         ...(next === "skipped" ? { error: "A step it depends on did not succeed" } : {}),
       });
@@ -422,7 +429,7 @@ export async function recoverStaleSteps(limit = 100): Promise<number> {
     const requeued = await db.runTransaction(async (tx) => {
       const fresh = (await tx.get(doc.ref)).data() as Step;
       if (!["running", "queued", "waiting"].includes(fresh.status) || millis(fresh.leaseUntil) > Date.now()) return false;
-      tx.update(doc.ref, { status: "queued", leaseUntil: Timestamp.fromMillis(Date.now() + LEASE_MS) });
+      tx.update(doc.ref, { status: "queued", leaseUntil: Timestamp.fromMillis(Date.now() + LEASE_MS), queuedAt: Timestamp.now() });
       return true;
     });
     if (requeued) {
@@ -432,4 +439,40 @@ export async function recoverStaleSteps(limit = 100): Promise<number> {
   }
   if (recovered) log.info("Recovered stale steps", { recovered });
   return recovered;
+}
+
+/** A queued step nobody has claimed for this long is treated as a lost hand-off. */
+export const STALLED_QUEUE_MS = 20_000;
+
+/**
+ * Re-dispatches this task's steps that are stuck: queued but unclaimed for STALLED_QUEUE_MS,
+ * running past their lease, or done waiting on the model. Safe to call repeatedly — the claim
+ * transaction in runStep lets only one runner execute a step, so duplicates are no-ops.
+ */
+export async function resumeStalledSteps(workspaceId: string, taskId: string): Promise<number> {
+  const task = (await taskRef(workspaceId, taskId).get()).data() as Task | undefined;
+  if (!task || TERMINAL_TASK_STATUSES.includes(task.status) || task.status === "awaiting_approval") return 0;
+  const now = Date.now();
+  const steps = (await stepsCol(workspaceId, taskId).get()).docs.map((d) => d.data() as Step);
+  let resumed = 0;
+  for (const step of steps) {
+    const stalledQueue = step.status === "queued" && millis(step.queuedAt ?? null) > 0 && now - millis(step.queuedAt ?? null) > STALLED_QUEUE_MS;
+    const legacyQueue = step.status === "queued" && !step.queuedAt && step.attempt === 0 && millis(step.leaseUntil) - LEASE_MS + STALLED_QUEUE_MS < now;
+    const expired = (step.status === "running" || step.status === "waiting") && millis(step.leaseUntil) < now;
+    if (!stalledQueue && !legacyQueue && !expired) continue;
+    const ok = await adminDb().runTransaction(async (tx) => {
+      const ref = stepRef(workspaceId, taskId, step.index);
+      const fresh = (await tx.get(ref)).data() as Step;
+      if (fresh.status !== step.status || millis(fresh.queuedAt ?? null) !== millis(step.queuedAt ?? null)) return false;
+      if (fresh.status === "running" && millis(fresh.leaseUntil) > now) return false;
+      tx.update(ref, { status: "queued", leaseUntil: Timestamp.fromMillis(now + LEASE_MS), queuedAt: Timestamp.now() });
+      return true;
+    });
+    if (ok) {
+      resumed++;
+      log.warn("Resuming stalled step", { workspaceId, taskId, index: step.index, tool: step.tool, was: step.status });
+      await dispatchStep({ workspaceId, taskId, index: step.index }, 0, { preferInline: true });
+    }
+  }
+  return resumed;
 }

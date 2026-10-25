@@ -212,6 +212,8 @@ export interface Step {
   attempt: number;
   maxAttempts: number;
   leaseUntil: TimestampLike | null;
+  /** When the step last became runnable; used to spot lost hand-offs. */
+  queuedAt?: TimestampLike | null;
   output: Record<string, unknown> | null;
   error: string | null;
   verification: "pass" | "fail" | "needs_review" | null;

@@ -31,7 +31,16 @@ function mode(): Mode {
 
 let tasksClient: CloudTasksClient | null = null;
 
-export async function dispatchStep(ref: StepRef, delayMs = 0): Promise<void> {
+/** Runs the step in this server invocation after the response (serverless-safe). */
+function runInline(ref: StepRef, delayMs: number) {
+  after(async () => {
+    if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
+    const { runStep } = await import("./engine");
+    await runStep(ref).catch((err) => log.error("Inline step execution failed", { ...ref, err }));
+  });
+}
+
+export async function dispatchStep(ref: StepRef, delayMs = 0, opts: { preferInline?: boolean } = {}): Promise<void> {
   const { TASKS_QUEUE, TASKS_INVOKER_SA, NEXT_PUBLIC_APP_URL, CRON_SECRET } = env();
 
   switch (mode()) {
@@ -44,7 +53,12 @@ export async function dispatchStep(ref: StepRef, delayMs = 0): Promise<void> {
       return;
 
     case "http": {
-      if (!CRON_SECRET) throw new Error("CRON_SECRET must be set to run background steps on this host");
+      // A user-triggered resume runs the step right here rather than relying on another hand-off.
+      if (opts.preferInline || !CRON_SECRET) {
+        if (!CRON_SECRET) log.warn("CRON_SECRET missing; running step inline", { ...ref });
+        runInline(ref, delayMs);
+        return;
+      }
       const send = async () => {
         if (delayMs) await new Promise((r) => setTimeout(r, delayMs));
         const res = await fetch(`${NEXT_PUBLIC_APP_URL}/api/internal/run-step`, {
@@ -55,9 +69,15 @@ export async function dispatchStep(ref: StepRef, delayMs = 0): Promise<void> {
         });
         if (!res.ok) throw new Error(`run-step dispatch returned ${res.status}`);
       };
-      // Delayed retries wait in the background; immediate dispatches confirm delivery now.
-      if (delayMs) after(() => send().catch((err) => log.error("Delayed dispatch failed", { ...ref, err })));
-      else await send();
+      // If the hand-off to a new invocation fails (blocked, timed out, rejected), run the step
+      // in this invocation instead so the task never sits in "queued".
+      const handOff = () =>
+        send().catch((err) => {
+          log.warn("Step hand-off failed; running inline", { ...ref, err });
+          runInline(ref, 0);
+        });
+      if (delayMs) after(handOff);
+      else await handOff();
       return;
     }
 

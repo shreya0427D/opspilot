@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState, PageHeader } from "@/components/app/page-header";
 import { useWsPath } from "@/components/providers/auth-provider";
@@ -84,6 +84,25 @@ export default function TaskDetailPage() {
   const task = useLiveDoc<Task>(base ? `${base}/${id}` : null);
   const steps = useLiveCollection<Step>(base ? `${base}/${id}/steps` : null, [orderBy("index")], "byIndex");
   const [canceling, setCanceling] = useState(false);
+
+  // Self-healing: if a step has sat in "queued" (or past its lease) for too long, the hand-off to
+  // a worker was lost. Ask the server to resume it; the server's claim makes repeats harmless.
+  const [now, setNow] = useState(() => Date.now());
+  const stalled = steps.data.some((s) => {
+    const queuedAt = toMillis(s.queuedAt) ?? (s.status === "queued" && s.attempt === 0 ? (toMillis(s.leaseUntil) ?? 0) - 300_000 : null);
+    if (s.status === "queued" && queuedAt) return now - queuedAt > 20_000;
+    return (s.status === "running" || s.status === "waiting") && (toMillis(s.leaseUntil) ?? Infinity) < now;
+  });
+  const active = task.data && !TERMINAL_TASK_STATUSES.includes(task.data.status) && task.data.status !== "awaiting_approval";
+  useEffect(() => {
+    if (!active) return;
+    const t = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(t);
+  }, [active]);
+  useEffect(() => {
+    if (!active || !stalled) return;
+    api(`/api/tasks/${id}/resume`, { method: "POST" }).catch(() => undefined);
+  }, [active, stalled, id, now]);
 
   if (task.loading) return <Skeleton className="mx-auto h-64 max-w-3xl" />;
   if (task.error) return <ErrorState message={task.error} />;

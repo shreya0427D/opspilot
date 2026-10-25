@@ -238,6 +238,10 @@ registerTool({
       const problems: string[] = [];
       if (!inv || !client || !inv.number || !inv.currency || !inv.dueDate) problems.push("Invoice or client no longer exists");
       else if (inv.status === "paid" || inv.status === "void") problems.push(`Invoice is now ${inv.status}`);
+      else if (inv.reviewStatus === "needs_review") problems.push("Invoice is awaiting review");
+      else if (inv.paymentEvidence?.marking === "paid" && inv.reviewStatus !== "confirmed") problems.push("Invoice shows a PAID marking");
+      else if (daysOverdue(inv.dueDate, todayInZone(workspace.timezone)) <= 0) problems.push("Invoice is no longer overdue");
+      else if (outstanding(inv) <= 0) problems.push("Nothing is outstanding on this invoice");
       else {
         const facts: ReminderFacts = {
           clientName: client.name,

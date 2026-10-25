@@ -22,7 +22,7 @@ const { classifyCommand } = await import("@/lib/ai/prompts");
 const { sendEmail } = await import("@/lib/server/email");
 const { ModelUnavailableError } = await import("@/lib/ai/gemini");
 const { adminDb } = await import("@/lib/firebase/admin");
-const { createTask, appendStepsAndResume, requestCancel, recoverStaleSteps, stepRef } = await import("@/lib/tasks/engine");
+const { createTask, appendStepsAndResume, requestCancel, recoverStaleSteps, resumeStalledSteps, stepRef } = await import("@/lib/tasks/engine");
 const { decideApproval } = await import("@/lib/server/services/approvals");
 const { sendPlan } = await import("@/lib/tasks/plans");
 import type { ApprovalItem, Invoice, Step, Task } from "@/lib/domain/types";
@@ -215,6 +215,31 @@ describe("engine safeguards", () => {
     expect(t.summary).toBeNull();
     const [plan] = await steps(taskId);
     expect(plan.status).toBe("waiting");
+  });
+
+  it("resumes a step whose hand-off was lost (queued, never claimed) without duplicating work", async () => {
+    await seed();
+    const { taskId } = await createTask({ workspaceId: WS, actorUid: "alice", command: "Chase", submissionKey: crypto.randomUUID(), trigger: "user" });
+    await waitFor(taskId, ["awaiting_approval"]);
+    // Recreate the production failure: verify_drafts queued 30s ago, never claimed, approval pending.
+    const all = await steps(taskId);
+    const verify = all.find((s) => s.tool === "verify_drafts")!;
+    const approval = all.find((s) => s.tool === "request_approval")!;
+    await stepRef(WS, taskId, verify.index).update({
+      status: "queued", attempt: 0, startedAt: null, endedAt: null, output: null,
+      queuedAt: Timestamp.fromMillis(Date.now() - 30_000), leaseUntil: Timestamp.fromMillis(Date.now() + 270_000),
+    });
+    await stepRef(WS, taskId, approval.index).update({ status: "pending", attempt: 0, output: null, endedAt: null, leaseUntil: null });
+    await db.doc(`workspaces/${WS}/tasks/${taskId}`).update({ status: "running" });
+
+    expect(await resumeStalledSteps(WS, taskId)).toBe(1);
+    expect(await resumeStalledSteps(WS, taskId)).toBe(0); // just re-queued: not stalled, no duplicate dispatch
+    const done = await waitFor(taskId, ["awaiting_approval"]);
+    expect(done.status).toBe("awaiting_approval");
+    const after = await steps(taskId);
+    expect(after.find((s) => s.tool === "verify_drafts")).toMatchObject({ status: "succeeded", attempt: 1 });
+    expect((await db.collection(`workspaces/${WS}/approvals`).get()).size).toBe(1); // no duplicate approval batch
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("recovers a step whose worker crashed mid-run", async () => {
