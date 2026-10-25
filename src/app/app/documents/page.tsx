@@ -1,15 +1,14 @@
 "use client";
 
 import { orderBy } from "firebase/firestore";
-import { ref, uploadBytesResumable } from "firebase/storage";
-import { ExternalLinkIcon, FileUpIcon, Trash2Icon } from "lucide-react";
+import { ExternalLinkIcon, FileUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page-header";
 import { useAuth, useWsPath } from "@/components/providers/auth-provider";
 import { StatusBadge } from "@/components/status-badge";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,67 +16,120 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { api, errorMessage } from "@/lib/client/api";
 import { useLiveCollection, toMillis } from "@/lib/client/firestore-hooks";
 import { relativeTime } from "@/lib/client/format";
+import { UploadError, uploadFile } from "@/lib/client/upload";
 import type { DocumentRecord } from "@/lib/domain/types";
-import { firebase } from "@/lib/firebase/client";
 
 const ACCEPT = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
 const MAX_BYTES = 10 * 1024 * 1024;
 const MAX_FILES = 20;
 
+type UploadStatus = "uploading" | "processing" | "done" | "failed";
+
+interface UploadEntry {
+  key: string;
+  file: File;
+  status: UploadStatus;
+  progress: number;
+  error?: string;
+  documentId?: string;
+  taskId?: string | null;
+}
+
+interface FinalizeResult {
+  taskId: string | null;
+  results: { documentId: string; status: string; fileName: string; reason?: string }[];
+}
+
 export default function DocumentsPage() {
-  const router = useRouter();
   const { workspaceId } = useAuth();
   const docs = useLiveCollection<DocumentRecord>(useWsPath("documents"), [orderBy("createdAt", "desc")], "recent");
   const input = useRef<HTMLInputElement>(null);
-  const [progress, setProgress] = useState<number | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [entries, setEntries] = useState<UploadEntry[]>([]);
+  const [storage, setStorage] = useState<{ ready: boolean; reason?: string } | null>(null);
 
-  async function upload(files: File[]) {
+  // Check up front that file storage exists, so uploads never hang against a missing bucket.
+  useEffect(() => {
+    if (!workspaceId) return;
+    api<{ ready: boolean; reason?: string }>("/api/storage-status")
+      .then(setStorage)
+      .catch(() => setStorage({ ready: true })); // don't block uploads if only the check failed
+  }, [workspaceId]);
+
+  const patch = (key: string, p: Partial<UploadEntry>) =>
+    setEntries((list) => list.map((e) => (e.key === key ? { ...e, ...p } : e)));
+  const busy = entries.some((e) => e.status === "uploading");
+
+  /** Uploads each file, then registers only the ones that actually reached storage. */
+  async function run(batch: UploadEntry[]) {
+    if (!workspaceId) return;
+    const uploaded: { key: string; documentId: string; storagePath: string; fileName: string }[] = [];
+    await Promise.all(
+      batch.map(async (entry) => {
+        // A fresh id per attempt: a failed upload leaves no record, so retries can't duplicate.
+        const documentId = crypto.randomUUID().replaceAll("-", "");
+        const safeName = entry.file.name.replace(/[^\w.\- ]+/g, "_").slice(0, 120);
+        const storagePath = `workspaces/${workspaceId}/uploads/${documentId}/${safeName}`;
+        patch(entry.key, { status: "uploading", progress: 0, error: undefined });
+        try {
+          await uploadFile(storagePath, entry.file, (f) => patch(entry.key, { progress: Math.round(f * 100) }));
+          uploaded.push({ key: entry.key, documentId, storagePath, fileName: entry.file.name.slice(0, 255) });
+        } catch (err) {
+          patch(entry.key, { status: "failed", error: err instanceof UploadError ? err.message : "Upload failed. Try again." });
+        }
+      }),
+    );
+    if (!uploaded.length) return;
+
+    try {
+      const res = await api<FinalizeResult>("/api/documents/finalize", {
+        body: { files: uploaded.map(({ documentId, storagePath, fileName }) => ({ documentId, storagePath, fileName })) },
+      });
+      for (const u of uploaded) {
+        const r = res.results.find((x) => x.documentId === u.documentId);
+        if (!r || r.status === "rejected") {
+          patch(u.key, { status: "failed", error: r?.reason ?? "The file was rejected", documentId: u.documentId });
+        } else {
+          patch(u.key, { status: "processing", documentId: u.documentId, taskId: res.taskId });
+        }
+      }
+      if (res.taskId) toast.success("Uploaded. Reading the invoices now…");
+    } catch (err) {
+      for (const u of uploaded) patch(u.key, { status: "failed", error: errorMessage(err) });
+    }
+  }
+
+  function upload(files: File[]) {
     if (!workspaceId) {
       toast.error("Your workspace is still loading. Try again in a moment.");
       return;
     }
-    if (files.length > MAX_FILES) return toast.error(`Upload at most ${MAX_FILES} files at a time`);
+    if (storage && !storage.ready) {
+      toast.error(storage.reason ?? "File storage isn't available.");
+      return;
+    }
+    if (files.length > MAX_FILES) {
+      toast.error(`Upload at most ${MAX_FILES} files at a time`);
+      return;
+    }
     const valid = files.filter((f) => ACCEPT.includes(f.type) && f.size > 0 && f.size <= MAX_BYTES);
     const skipped = files.length - valid.length;
     if (skipped) toast.warning(`${skipped} file(s) skipped: only PDF, PNG, JPG or WEBP up to 10 MB`);
+    if (input.current) input.current.value = "";
     if (!valid.length) return;
-
-    setProgress(0);
-    const total = valid.reduce((s, f) => s + f.size, 0);
-    const sent = new Map<string, number>();
-    try {
-      const uploaded = await Promise.all(
-        valid.map(async (file) => {
-          const documentId = crypto.randomUUID().replaceAll("-", "");
-          const safeName = file.name.replace(/[^\w.\- ]+/g, "_").slice(0, 120);
-          const storagePath = `workspaces/${workspaceId}/uploads/${documentId}/${safeName}`;
-          const task = uploadBytesResumable(ref(firebase().storage, storagePath), file, { contentType: file.type });
-          task.on("state_changed", (s) => {
-            sent.set(documentId, s.bytesTransferred);
-            setProgress(Math.round(([...sent.values()].reduce((a, b) => a + b, 0) / total) * 100));
-          });
-          await task;
-          return { documentId, storagePath, fileName: file.name.slice(0, 255) };
-        }),
-      );
-      const res = await api<{ taskId: string | null; results: { status: string; fileName: string; reason?: string }[] }>(
-        "/api/documents/finalize",
-        { body: { files: uploaded } },
-      );
-      const rejected = res.results.filter((r) => r.status === "rejected");
-      rejected.forEach((r) => toast.error(`${r.fileName}: ${r.reason}`));
-      if (res.taskId) {
-        toast.success("Upload complete. Extracting invoice details…");
-        router.push(`/app/tasks/${res.taskId}`);
-      }
-    } catch (err) {
-      toast.error(errorMessage(err));
-    } finally {
-      setProgress(null);
-      if (input.current) input.current.value = "";
-    }
+    const batch: UploadEntry[] = valid.map((file) => ({ key: crypto.randomUUID(), file, status: "uploading", progress: 0 }));
+    setEntries((list) => [...batch, ...list].slice(0, 40));
+    void run(batch);
   }
+
+  // Processing outcome comes from the live document record (including AI extraction failures).
+  const liveStatus = (e: UploadEntry): { status: UploadStatus; error?: string } => {
+    if (e.status !== "processing" || !e.documentId) return { status: e.status, error: e.error };
+    const d = docs.data.find((x) => x.id === e.documentId);
+    if (d?.status === "processed") return { status: "done" };
+    if (d?.status === "failed" || d?.status === "rejected") return { status: "failed", error: d.error ?? "Processing failed" };
+    return { status: "processing" };
+  };
 
   async function remove(id: string) {
     if (!confirm("Delete this file? Invoices already created from it are kept.")) return;
@@ -101,7 +153,7 @@ export default function DocumentsPage() {
         onDrop={(e) => {
           e.preventDefault();
           setDragging(false);
-          void upload(Array.from(e.dataTransfer.files));
+          upload(Array.from(e.dataTransfer.files));
         }}
         className={`mb-6 flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-10 text-center transition-colors ${dragging ? "border-primary bg-muted/60" : ""}`}
       >
@@ -117,16 +169,60 @@ export default function DocumentsPage() {
           disabled={!workspaceId}
           onChange={(e) => e.target.files && upload(Array.from(e.target.files))}
         />
-        <Button className="mt-4" onClick={() => input.current?.click()} disabled={progress !== null || !workspaceId}>
-          {workspaceId ? "Choose files" : "Loading…"}
+        <Button className="mt-4" onClick={() => input.current?.click()} disabled={busy || !workspaceId || storage?.ready === false}>
+          {workspaceId ? (busy ? "Uploading…" : "Choose files") : "Loading…"}
         </Button>
-        {progress !== null && (
-          <div className="mt-4 w-full max-w-xs" aria-live="polite">
-            <Progress value={progress} />
-            <p className="mt-1 text-xs text-muted-foreground">Uploading… {progress}%</p>
-          </div>
-        )}
       </div>
+
+      {storage?.ready === false && (
+        <Alert variant="destructive" className="mb-6">
+          <AlertTitle>Uploads are unavailable</AlertTitle>
+          <AlertDescription>
+            {storage.reason} The project owner needs to open Firebase console → Storage → Get started, then deploy the storage rules.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {entries.length > 0 && (
+        <ul className="mb-6 divide-y rounded-xl border" aria-live="polite" aria-label="Uploads">
+          {entries.map((e) => {
+            const { status, error } = liveStatus(e);
+            return (
+              <li key={e.key} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
+                <span className="min-w-0 flex-1 truncate font-medium">{e.file.name}</span>
+                {status === "uploading" && (
+                  <span className="flex w-40 items-center gap-2">
+                    <Progress value={e.progress} className="flex-1" />
+                    <span className="w-9 text-right text-xs tabular-nums text-muted-foreground">{e.progress}%</span>
+                  </span>
+                )}
+                {status === "processing" && (
+                  <span className="flex items-center gap-2">
+                    <StatusBadge status="processing" />
+                    {e.taskId && (
+                      <Link href={`/app/tasks/${e.taskId}`} className="text-xs underline-offset-4 hover:underline">
+                        View progress
+                      </Link>
+                    )}
+                  </span>
+                )}
+                {status === "done" && <StatusBadge status="processed" />}
+                {status === "failed" && (
+                  <span className="flex flex-wrap items-center gap-2">
+                    <StatusBadge status="failed" />
+                    <span className="text-xs text-destructive">{error}</span>
+                    {!e.documentId && (
+                      <Button size="xs" variant="outline" onClick={() => void run([e])} disabled={storage?.ready === false}>
+                        <RotateCcwIcon /> Retry
+                      </Button>
+                    )}
+                  </span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
 
       {docs.error && <ErrorState message={docs.error} />}
       {docs.loading ? (
