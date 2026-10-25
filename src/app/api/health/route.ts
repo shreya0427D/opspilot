@@ -23,8 +23,7 @@ const ENV_KEYS = [
   "NEXT_PUBLIC_FIREBASE_PROJECT_ID",
   "NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET",
   "NEXT_PUBLIC_USE_EMULATORS",
-  "GEMINI_API_KEY",
-  "GEMINI_API_KEY_1",
+  "GEMINI_KEY_PROJECTS",
   "FIREBASE_ADMIN_CLIENT_EMAIL",
   "FIREBASE_ADMIN_PRIVATE_KEY",
   "CRON_SECRET",
@@ -60,6 +59,8 @@ export async function GET(req: NextRequest) {
   }
 
   const present = Object.fromEntries(ENV_KEYS.map((k) => [k, Boolean(process.env[k])]));
+  const { discoverKeys } = await import("@/lib/ai/keys");
+  const geminiKeys = discoverKeys(process.env).map((k) => `${k.name} (project: ${k.project})`);
   let email = "ok";
   if (envCheck === "ok") {
     const { emailConfig } = await import("@/lib/server/email");
@@ -68,7 +69,7 @@ export async function GET(req: NextRequest) {
   }
   const healthy = Object.values(modules).every((v) => v === "ok") && envCheck === "ok";
   const body = authorized(req)
-    ? { healthy, node: process.version, modules, envCheck, email, envPresent: present, emulators: process.env.NEXT_PUBLIC_USE_EMULATORS === "true" }
+    ? { healthy, node: process.version, modules, envCheck, email, geminiKeys, envPresent: present, emulators: process.env.NEXT_PUBLIC_USE_EMULATORS === "true" }
     : { healthy };
   return NextResponse.json(body, { status: healthy ? 200 : 500, headers: { "Cache-Control": "no-store" } });
 }

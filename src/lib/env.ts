@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { discoverKeys } from "@/lib/ai/keys";
 
 const serverEnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -8,7 +9,7 @@ const serverEnvSchema = z.object({
   NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: z.string().min(1),
   NEXT_PUBLIC_USE_EMULATORS: z.enum(["true", "false"]).default("false"),
 
-  GEMINI_API_KEY: z.string().min(20),
+  // Gemini keys (GEMINI_API_KEY, GEMINI_API_KEY_1..n) are discovered by src/lib/ai/keys.ts.
 
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().optional(),
@@ -28,16 +29,12 @@ let cached: ServerEnv | null = null;
 
 export function env(): ServerEnv {
   if (cached) return cached;
-  const raw = {
-    ...process.env,
-    // Local .env still carries numbered keys from the interview; production uses GEMINI_API_KEY.
-    GEMINI_API_KEY: process.env.GEMINI_API_KEY ?? process.env.GEMINI_API_KEY_1,
-  };
-  const parsed = serverEnvSchema.safeParse(raw);
+  const parsed = serverEnvSchema.safeParse(process.env);
   if (!parsed.success) {
     const fields = parsed.error.issues.map((i) => i.path.join(".")).join(", ");
     throw new Error(`Invalid server environment: ${fields}`);
   }
+  if (discoverKeys(process.env).length === 0) throw new Error("Invalid server environment: GEMINI_API_KEY");
   cached = parsed.data;
   return cached;
 }

@@ -32,7 +32,10 @@ registerTool({
     try {
       extraction = await extractInvoice(ctx.workspaceId, { base64: bytes.toString("base64"), mime: record.mime });
     } catch (err) {
-      await docRef.update({ status: "failed", error: "Extraction failed; you can retry or enter the invoice by hand" });
+      await docRef.update({
+        status: "failed",
+        error: err instanceof AppError ? err.message : "Extraction failed; you can retry or enter the invoice by hand",
+      });
       throw err;
     }
     const { data, costMicros } = extraction;
