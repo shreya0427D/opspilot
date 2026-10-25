@@ -103,6 +103,12 @@ export type DocumentStatus =
 
 export interface DocumentRecord {
   fileName: string;
+  /** "edgestore" for new uploads; absent/"firebase" for older Firebase Storage records. */
+  storageProvider?: "edgestore" | "firebase";
+  /** EdgeStore file reference (private; never served directly to browsers). */
+  fileUrl?: string;
+  workspaceId?: string;
+  /** Firebase Storage object path for legacy records; "" for EdgeStore files. */
   storagePath: string;
   mime: string;
   sizeBytes: number;

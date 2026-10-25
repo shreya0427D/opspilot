@@ -24,7 +24,9 @@ describe("content security policy", () => {
   it("allows exactly the Firebase endpoints the browser uses, no wildcards", () => {
     const connect = directive(csp, "connect-src");
     for (const host of ["identitytoolkit", "securetoken", "firestore", "firebasestorage"]) expect(connect).toContain(`https://${host}.googleapis.com`);
-    expect(connect).not.toMatch(/\s\*|https:\/\/\*/);
+    // The only wildcard allowed is EdgeStore's own subdomains (upload hosts are issued per request).
+    expect(connect.replace("https://*.edgestore.dev", "")).not.toMatch(/\s\*|https:\/\/\*/);
+    expect(connect).toContain("https://*.edgestore.dev");
     expect(directive(csp, "frame-src")).toContain("https://opspilot-28504.firebaseapp.com");
   });
 

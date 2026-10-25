@@ -1,12 +1,9 @@
 "use client";
 
-import { ref, uploadBytesResumable, type UploadTask } from "firebase/storage";
-import { firebase } from "@/lib/firebase/client";
+import type { useEdgeStore } from "@/lib/edgestore/client";
 
-/** No bytes accepted for this long → give up instead of showing 0% forever. */
+/** No progress for this long → cancel instead of showing a frozen bar. */
 const STALL_MS = 30_000;
-/** Cap the SDK's own retrying (default is 10 minutes) so real failures surface quickly. */
-const MAX_RETRY_MS = 45_000;
 
 export class UploadError extends Error {
   constructor(public code: string, message: string) {
@@ -14,63 +11,59 @@ export class UploadError extends Error {
   }
 }
 
-/** Plain-language reasons for Firebase Storage error codes. */
-export function describeStorageError(code: string): string {
-  switch (code) {
-    case "storage/bucket-not-found":
-    case "storage/project-not-found":
-      return "File storage isn't set up for this project yet.";
-    case "storage/unauthorized":
-    case "storage/unauthenticated":
-      return "Upload was refused. Sign out and back in; if it persists, the storage security rules may not be deployed.";
-    case "storage/quota-exceeded":
-      return "Storage quota exceeded for this project.";
-    case "storage/retry-limit-exceeded":
-    case "upload/stalled":
-      return "The upload didn't go through. Check your connection and try again.";
-    case "storage/canceled":
-      return "Upload canceled.";
-    case "storage/invalid-checksum":
-      return "The file was corrupted in transit. Try again.";
-    default:
-      return "Upload failed. Try again.";
-  }
+type EdgeStore = ReturnType<typeof useEdgeStore>["edgestore"];
+
+function describe(err: unknown, stalled: boolean): UploadError {
+  if (stalled) return new UploadError("stalled", "The upload didn't go through. Check your connection and try again.");
+  const e = err as { name?: string; message?: string; status?: number };
+  const text = `${e?.name ?? ""} ${e?.message ?? ""}`;
+  if (e?.name === "AbortError" || /abort/i.test(text)) return new UploadError("canceled", "Upload canceled.");
+  if (/unauthori|forbidden|401|403|sign in/i.test(text)) return new UploadError("unauthorized", "Upload was refused. Sign out and back in, then try again.");
+  if (/size|too large|maxSize/i.test(text)) return new UploadError("too_large", "File is larger than 10 MB.");
+  if (/type|accept|mime/i.test(text)) return new UploadError("type", "Only PDF, PNG, JPG or WEBP files are supported.");
+  if (/EDGESTORE|configur|access key|secret/i.test(text)) return new UploadError("not_configured", "File storage isn't configured on the server yet.");
+  if (/quota|limit/i.test(text)) return new UploadError("quota", "Storage quota reached for this project.");
+  if (/network|fetch|Failed to fetch/i.test(text)) return new UploadError("network", "Network error during upload. Try again.");
+  return new UploadError("unknown", "Upload failed. Try again.");
 }
 
 /**
- * Uploads one file with real progress events. Rejects with an UploadError (never hangs): either
- * the SDK reports an error, or the watchdog cancels an upload that makes no progress.
+ * Uploads one invoice to the private EdgeStore bucket with real progress events. Uploads are
+ * temporary until the server verifies and confirms them, so abandoned files expire on their own.
+ * Never hangs: SDK errors reject, and a stall watchdog aborts uploads that stop progressing.
  */
-export function uploadFile(path: string, file: File, onProgress: (fraction: number) => void): Promise<void> {
-  const storage = firebase().storage;
-  storage.maxUploadRetryTime = MAX_RETRY_MS;
-  const task: UploadTask = uploadBytesResumable(ref(storage, path), file, { contentType: file.type });
-
-  return new Promise((resolve, reject) => {
-    let lastBytes = -1;
-    let stalled = false;
-    const watchdog = setInterval(() => {
-      const bytes = task.snapshot.bytesTransferred;
-      if (bytes === lastBytes && bytes < file.size) {
-        stalled = true;
-        task.cancel();
-      }
-      lastBytes = bytes;
-    }, STALL_MS);
-
-    task.on(
-      "state_changed",
-      (snap) => onProgress(snap.totalBytes ? snap.bytesTransferred / snap.totalBytes : 0),
-      (err) => {
-        clearInterval(watchdog);
-        const code = stalled ? "upload/stalled" : (err as { code?: string }).code ?? "storage/unknown";
-        reject(new UploadError(code, describeStorageError(code)));
+export async function uploadFile(
+  edgestore: EdgeStore,
+  params: { file: File; workspaceId: string; documentId: string },
+  onProgress: (percent: number) => void,
+): Promise<{ url: string }> {
+  const controller = new AbortController();
+  let last = -1;
+  let current = 0;
+  let stalled = false;
+  const watchdog = setInterval(() => {
+    if (current === last && current < 100) {
+      stalled = true;
+      controller.abort();
+    }
+    last = current;
+  }, STALL_MS);
+  try {
+    const res = await edgestore.invoiceFiles.upload({
+      file: params.file,
+      input: { workspaceId: params.workspaceId, documentId: params.documentId },
+      signal: controller.signal,
+      onProgressChange: (p) => {
+        current = p;
+        onProgress(Math.round(p));
       },
-      () => {
-        clearInterval(watchdog);
-        onProgress(1);
-        resolve();
-      },
-    );
-  });
+      options: { temporary: true },
+    });
+    onProgress(100);
+    return { url: res.url };
+  } catch (err) {
+    throw describe(err, stalled);
+  } finally {
+    clearInterval(watchdog);
+  }
 }

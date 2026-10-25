@@ -3,12 +3,11 @@
 import { orderBy } from "firebase/firestore";
 import { ExternalLinkIcon, FileUpIcon, RotateCcwIcon, Trash2Icon } from "lucide-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState, PageHeader } from "@/components/app/page-header";
 import { useAuth, useWsPath } from "@/components/providers/auth-provider";
 import { StatusBadge } from "@/components/status-badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -17,6 +16,7 @@ import { api, errorMessage } from "@/lib/client/api";
 import { useLiveCollection, toMillis } from "@/lib/client/firestore-hooks";
 import { relativeTime } from "@/lib/client/format";
 import { UploadError, uploadFile } from "@/lib/client/upload";
+import { EdgeStoreProvider, useEdgeStore } from "@/lib/edgestore/client";
 import type { DocumentRecord } from "@/lib/domain/types";
 
 const ACCEPT = ["application/pdf", "image/png", "image/jpeg", "image/webp"];
@@ -41,20 +41,20 @@ interface FinalizeResult {
 }
 
 export default function DocumentsPage() {
+  return (
+    <EdgeStoreProvider>
+      <Documents />
+    </EdgeStoreProvider>
+  );
+}
+
+function Documents() {
   const { workspaceId } = useAuth();
+  const { edgestore } = useEdgeStore();
   const docs = useLiveCollection<DocumentRecord>(useWsPath("documents"), [orderBy("createdAt", "desc")], "recent");
   const input = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [entries, setEntries] = useState<UploadEntry[]>([]);
-  const [storage, setStorage] = useState<{ ready: boolean; reason?: string } | null>(null);
-
-  // Check up front that file storage exists, so uploads never hang against a missing bucket.
-  useEffect(() => {
-    if (!workspaceId) return;
-    api<{ ready: boolean; reason?: string }>("/api/storage-status")
-      .then(setStorage)
-      .catch(() => setStorage({ ready: true })); // don't block uploads if only the check failed
-  }, [workspaceId]);
 
   const patch = (key: string, p: Partial<UploadEntry>) =>
     setEntries((list) => list.map((e) => (e.key === key ? { ...e, ...p } : e)));
@@ -63,17 +63,15 @@ export default function DocumentsPage() {
   /** Uploads each file, then registers only the ones that actually reached storage. */
   async function run(batch: UploadEntry[]) {
     if (!workspaceId) return;
-    const uploaded: { key: string; documentId: string; storagePath: string; fileName: string }[] = [];
+    const uploaded: { key: string; documentId: string; fileUrl: string; fileName: string }[] = [];
     await Promise.all(
       batch.map(async (entry) => {
         // A fresh id per attempt: a failed upload leaves no record, so retries can't duplicate.
         const documentId = crypto.randomUUID().replaceAll("-", "");
-        const safeName = entry.file.name.replace(/[^\w.\- ]+/g, "_").slice(0, 120);
-        const storagePath = `workspaces/${workspaceId}/uploads/${documentId}/${safeName}`;
         patch(entry.key, { status: "uploading", progress: 0, error: undefined });
         try {
-          await uploadFile(storagePath, entry.file, (f) => patch(entry.key, { progress: Math.round(f * 100) }));
-          uploaded.push({ key: entry.key, documentId, storagePath, fileName: entry.file.name.slice(0, 255) });
+          const { url } = await uploadFile(edgestore, { file: entry.file, workspaceId, documentId }, (pct) => patch(entry.key, { progress: pct }));
+          uploaded.push({ key: entry.key, documentId, fileUrl: url, fileName: entry.file.name.slice(0, 255) });
         } catch (err) {
           patch(entry.key, { status: "failed", error: err instanceof UploadError ? err.message : "Upload failed. Try again." });
         }
@@ -83,7 +81,7 @@ export default function DocumentsPage() {
 
     try {
       const res = await api<FinalizeResult>("/api/documents/finalize", {
-        body: { files: uploaded.map(({ documentId, storagePath, fileName }) => ({ documentId, storagePath, fileName })) },
+        body: { files: uploaded.map(({ documentId, fileUrl, fileName }) => ({ documentId, fileUrl, fileName })) },
       });
       for (const u of uploaded) {
         const r = res.results.find((x) => x.documentId === u.documentId);
@@ -102,10 +100,6 @@ export default function DocumentsPage() {
   function upload(files: File[]) {
     if (!workspaceId) {
       toast.error("Your workspace is still loading. Try again in a moment.");
-      return;
-    }
-    if (storage && !storage.ready) {
-      toast.error(storage.reason ?? "File storage isn't available.");
       return;
     }
     if (files.length > MAX_FILES) {
@@ -169,19 +163,10 @@ export default function DocumentsPage() {
           disabled={!workspaceId}
           onChange={(e) => e.target.files && upload(Array.from(e.target.files))}
         />
-        <Button className="mt-4" onClick={() => input.current?.click()} disabled={busy || !workspaceId || storage?.ready === false}>
+        <Button className="mt-4" onClick={() => input.current?.click()} disabled={busy || !workspaceId}>
           {workspaceId ? (busy ? "Uploading…" : "Choose files") : "Loading…"}
         </Button>
       </div>
-
-      {storage?.ready === false && (
-        <Alert variant="destructive" className="mb-6">
-          <AlertTitle>Uploads are unavailable</AlertTitle>
-          <AlertDescription>
-            {storage.reason} The project owner needs to open Firebase console → Storage → Get started, then deploy the storage rules.
-          </AlertDescription>
-        </Alert>
-      )}
 
       {entries.length > 0 && (
         <ul className="mb-6 divide-y rounded-xl border" aria-live="polite" aria-label="Uploads">
@@ -212,7 +197,7 @@ export default function DocumentsPage() {
                     <StatusBadge status="failed" />
                     <span className="text-xs text-destructive">{error}</span>
                     {!e.documentId && (
-                      <Button size="xs" variant="outline" onClick={() => void run([e])} disabled={storage?.ready === false}>
+                      <Button size="xs" variant="outline" onClick={() => void run([e])}>
                         <RotateCcwIcon /> Retry
                       </Button>
                     )}

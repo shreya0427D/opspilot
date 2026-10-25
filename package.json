@@ -15,6 +15,8 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@edgestore/react": "^1.0.1",
+    "@edgestore/server": "^1.0.1",
     "@google-cloud/tasks": "^7.3.0",
     "@google/genai": "^2.31.0",
     "@react-three/fiber": "^9.8.2",

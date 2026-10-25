@@ -83,7 +83,7 @@ export const createTaskInput = z.object({
 
 export const finalizeUploadInput = z.object({
   documentId: id,
-  storagePath: z.string().min(1).max(512),
+  fileUrl: z.url().max(1024).refine((u) => new URL(u).hostname.endsWith(".edgestore.dev"), "Unexpected file location"),
   fileName: z.string().min(1).max(255),
 });
 

@@ -4,9 +4,10 @@ import { FieldValue } from "firebase-admin/firestore";
 import { fileTypeFromBuffer } from "file-type";
 import { PDFDocument } from "pdf-lib";
 import type { DocumentRecord } from "@/lib/domain/types";
-import { adminBucket, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
 import { createTask } from "@/lib/tasks/engine";
-import { badRequest, forbidden, notFound } from "../errors";
+import { badRequest, notFound } from "../errors";
+import { confirmUpload, deleteStoredFile, deleteUploadByUrl, downloadByUrl, downloadDocument, verifyUploadedFile } from "../file-storage";
 import type { WorkspaceContext } from "../session";
 import { audit, ws } from "../workspace-data";
 
@@ -17,7 +18,8 @@ const ALLOWED_MIME = new Set(["application/pdf", "image/png", "image/jpeg", "ima
 
 export interface FinalizeFile {
   documentId: string;
-  storagePath: string;
+  /** EdgeStore reference returned by the upload. Verified server-side before use. */
+  fileUrl: string;
   fileName: string;
 }
 
@@ -45,25 +47,25 @@ async function validateUpload(bytes: Buffer): Promise<Validation> {
 export async function finalizeUploads(ctx: WorkspaceContext, files: FinalizeFile[]) {
   if (files.length === 0 || files.length > MAX_FILES_PER_UPLOAD) throw badRequest(`Upload between 1 and ${MAX_FILES_PER_UPLOAD} files`);
   const col = ws(ctx.workspaceId);
-  const bucket = adminBucket();
   const accepted: string[] = [];
   const results: { documentId: string; fileName: string; status: string; reason?: string }[] = [];
 
   for (const f of files) {
-    // The path must be inside this workspace and match the document ID the client claims.
-    if (!f.storagePath.startsWith(`workspaces/${ctx.workspaceId}/uploads/${f.documentId}/`)) throw forbidden("Invalid upload path");
     const docRef = col.documents.doc(f.documentId);
     if ((await docRef.get()).exists) throw badRequest("Upload was already processed");
 
-    const file = bucket.file(f.storagePath);
-    const [exists] = await file.exists();
-    if (!exists) throw notFound(`Upload ${f.fileName} not found`);
-    const [bytes] = await file.download();
+    // The file must exist in storage under this workspace and this document id (checked against
+    // the path EdgeStore recorded at upload, not anything the client says).
+    await verifyUploadedFile(ctx.workspaceId, f.documentId, f.fileUrl);
+    const bytes = await downloadByUrl(f.fileUrl);
     const v = await validateUpload(bytes);
 
     const base: Omit<DocumentRecord, "createdAt"> = {
       fileName: f.fileName.slice(0, 255),
-      storagePath: f.storagePath,
+      storageProvider: "edgestore",
+      fileUrl: f.fileUrl,
+      workspaceId: ctx.workspaceId,
+      storagePath: "",
       mime: v.ok ? v.mime : "application/octet-stream",
       sizeBytes: bytes.length,
       pageCount: v.ok ? v.pages : null,
@@ -81,7 +83,9 @@ export async function finalizeUploads(ctx: WorkspaceContext, files: FinalizeFile
         base.error = "This exact file was already uploaded";
       }
     }
-    if (base.status === "rejected") await file.delete({ ignoreNotFound: true });
+    // Rejected files are removed; accepted ones are confirmed so the temporary upload is kept.
+    if (base.status === "rejected") await deleteUploadByUrl(f.fileUrl);
+    else await confirmUpload(f.fileUrl);
     await docRef.set({ ...base, createdAt: FieldValue.serverTimestamp() });
     await audit(ctx.workspaceId, ctx.uid, "document.uploaded", `documents/${f.documentId}`, { status: base.status });
     results.push({ documentId: f.documentId, fileName: base.fileName, status: base.status, reason: base.error });
@@ -110,7 +114,7 @@ export async function finalizeUploads(ctx: WorkspaceContext, files: FinalizeFile
 export async function readDocumentFile(ctx: WorkspaceContext, documentId: string) {
   const record = (await ws(ctx.workspaceId).documents.doc(documentId).get()).data() as DocumentRecord | undefined;
   if (!record || record.status === "rejected") throw notFound("Document not found");
-  const [bytes] = await adminBucket().file(record.storagePath).download();
+  const bytes = await downloadDocument(ctx.workspaceId, record);
   return { bytes, mime: record.mime, fileName: record.fileName };
 }
 
@@ -118,7 +122,7 @@ export async function deleteDocument(ctx: WorkspaceContext, documentId: string) 
   const ref = ws(ctx.workspaceId).documents.doc(documentId);
   const record = (await ref.get()).data() as DocumentRecord | undefined;
   if (!record) throw notFound("Document not found");
-  await adminBucket().file(record.storagePath).delete({ ignoreNotFound: true });
+  await deleteStoredFile(record);
   await ref.delete();
   await audit(ctx.workspaceId, ctx.uid, "document.deleted", `documents/${documentId}`);
 }

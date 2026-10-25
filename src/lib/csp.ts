@@ -7,6 +7,8 @@
 //   can't cover. Inline styles can't execute code.
 // - connect-src Google APIs: Firebase Auth (identitytoolkit, securetoken), Firestore and Storage.
 // - frame-src auth domain + Google: Firebase Auth's hidden iframe and Google sign-in.
+// - connect-src https://*.edgestore.dev: invoice uploads go to EdgeStore (the upload host is
+//   issued per request, so only EdgeStore's own subdomains are allowed — nothing broader).
 // Gemini and Resend are only called from the server, so they need no browser allowance.
 
 export function buildCsp(
@@ -32,6 +34,7 @@ export function buildCsp(
       "https://firebasestorage.googleapis.com",
       "https://www.googleapis.com",
       "https://apis.google.com",
+      "https://*.edgestore.dev",
       emulatorHosts,
     ]
       .filter(Boolean)

@@ -89,6 +89,18 @@ Vercel works too. Background steps then run through authenticated calls to `/api
 
 Do **not** set `NEXT_PUBLIC_USE_EMULATORS` or `TASKS_QUEUE` on Vercel. Add the Vercel domain under Firebase Authentication → Authorized domains. Redeploy after changing variables.
 
+## Invoice file storage (EdgeStore)
+
+Uploaded invoices are stored in a **private** EdgeStore bucket (`invoiceFiles`) instead of Firebase Storage, so no Blaze plan is needed for files.
+
+1. Create a project at https://dashboard.edgestore.dev and copy its keys.
+2. Set `EDGESTORE_ACCESS_KEY` and `EDGESTORE_SECRET_KEY` in `.env.local` and in Vercel → Environment Variables (server-only), then redeploy.
+
+How access is protected:
+- `/api/edgestore` builds its context from the verified Firebase session and workspace membership; uploads must target the caller's own workspace (`beforeUpload`), and browser deletes are refused.
+- The bucket is `private`: files have no public URL. The server reads them with 60-second signed URLs and streams them to authorized users via `/api/documents/[id]`.
+- Uploads are temporary until the server verifies the file (owner, type by magic bytes, size, page count, duplicate check) and confirms it; abandoned uploads expire after 24 hours.
+
 ## Database security rules (required, any host)
 
 The browser reads data directly from Firestore, so the rules in this repo must be live on the project. Until they are, the app shows "Your data can't be loaded … security rules haven't been deployed".

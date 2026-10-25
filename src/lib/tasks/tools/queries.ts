@@ -4,7 +4,7 @@ import { answerDocumentQuestion } from "@/lib/ai/prompts";
 import { matchClient } from "@/lib/domain/matching";
 import { formatMinor, totalsByCurrency } from "@/lib/domain/money";
 import type { DocumentRecord, Invoice } from "@/lib/domain/types";
-import { adminBucket } from "@/lib/firebase/admin";
+import { downloadDocument } from "@/lib/server/file-storage";
 import { AppError } from "@/lib/server/errors";
 import { ws } from "@/lib/server/workspace-data";
 import { registerTool } from "../registry";
@@ -91,7 +91,7 @@ registerTool({
     if (!inv.sourceDocumentId) throw new AppError(404, "no_document", `Invoice ${invoiceNumber} was entered by hand and has no document`);
     const doc = (await ws(ctx.workspaceId).documents.doc(inv.sourceDocumentId).get()).data() as DocumentRecord | undefined;
     if (!doc) throw new AppError(404, "no_document", "The source document was deleted");
-    return { output: { documentId: inv.sourceDocumentId, storagePath: doc.storagePath, mime: doc.mime, pageCount: doc.pageCount, fileName: doc.fileName } };
+    return { output: { documentId: inv.sourceDocumentId, mime: doc.mime, pageCount: doc.pageCount, fileName: doc.fileName } };
   },
 });
 
@@ -103,9 +103,10 @@ registerTool({
   argsSchema: z.object({ question: z.string() }),
   async run(ctx, { question }) {
     if (!question) throw new AppError(400, "missing_question", "No question was found in the request");
-    const found = ctx.deps[ctx.step.dependsOn[0]] as { storagePath: string; mime: string };
-    if (!found.storagePath.startsWith(`workspaces/${ctx.workspaceId}/`)) throw new AppError(403, "forbidden", "Document is outside this workspace");
-    const [bytes] = await adminBucket().file(found.storagePath).download();
+    const found = ctx.deps[ctx.step.dependsOn[0]] as { documentId: string; mime: string };
+    const record = (await ws(ctx.workspaceId).documents.doc(found.documentId).get()).data() as DocumentRecord | undefined;
+    if (!record) throw new AppError(404, "not_found", "The source document was deleted");
+    const bytes = await downloadDocument(ctx.workspaceId, record);
     const { data, costMicros } = await answerDocumentQuestion(ctx.workspaceId, { base64: bytes.toString("base64"), mime: found.mime }, question);
     return { output: { ...data, fileName: (found as { fileName?: string }).fileName, pageCount: (found as { pageCount?: number }).pageCount ?? null }, costMicros };
   },

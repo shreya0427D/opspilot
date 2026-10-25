@@ -6,7 +6,8 @@ import { extractInvoice } from "@/lib/ai/prompts";
 import { checkExtractedInvoice } from "@/lib/domain/invoice-checks";
 import { normalizeName, resolveClient } from "@/lib/domain/matching";
 import type { DocumentRecord, Invoice } from "@/lib/domain/types";
-import { adminBucket, adminDb } from "@/lib/firebase/admin";
+import { adminDb } from "@/lib/firebase/admin";
+import { downloadDocument } from "@/lib/server/file-storage";
 import { AppError } from "@/lib/server/errors";
 import { audit, ws } from "@/lib/server/workspace-data";
 import { registerTool } from "../registry";
@@ -23,11 +24,10 @@ registerTool({
     const docRef = col.documents.doc(documentId);
     const record = (await docRef.get()).data() as DocumentRecord | undefined;
     if (!record) throw new AppError(404, "not_found", "Document not found");
-    if (!record.storagePath.startsWith(`workspaces/${ctx.workspaceId}/`)) throw new AppError(403, "forbidden", "Document is outside this workspace");
     if (record.status === "processed") return { output: { documentId, invoiceIds: record.invoiceIds, alreadyDone: true } };
 
     await docRef.update({ status: "processing" });
-    const [bytes] = await adminBucket().file(record.storagePath).download();
+    const bytes = await downloadDocument(ctx.workspaceId, record);
     let extraction;
     try {
       extraction = await extractInvoice(ctx.workspaceId, { base64: bytes.toString("base64"), mime: record.mime });
