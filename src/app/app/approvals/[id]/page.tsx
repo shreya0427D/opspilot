@@ -174,7 +174,11 @@ export default function ApprovalPage() {
               )}
             </CardHeader>
             <CardContent className="space-y-2">
-              {it.isSample && <p className="text-xs text-muted-foreground">Sample data is never sent.</p>}
+              {it.isSample && (
+                <p className="text-xs text-muted-foreground">
+                  Sample data is never sent, so it can&apos;t be approved. Add real invoices (upload or CSV import) and run collections again to get sendable drafts.
+                </p>
+              )}
               {!it.verification.ok && (
                 <p className="text-xs text-destructive">Failed checks: {it.verification.problems.join("; ")}</p>
               )}
