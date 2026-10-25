@@ -32,42 +32,42 @@ export function HeroIllustration({ note }: { note?: string }) {
       <svg viewBox="0 0 800 560" className="h-full w-full" role="img" aria-label="Illustration of the OpsPilot console with invoice sheets">
         <defs>
           <linearGradient id="hi-metal" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stopColor="#2a3150" />
-            <stop offset="1" stopColor="#121726" />
+            <stop offset="0" stopColor="#2c4160" />
+            <stop offset="1" stopColor="#172230" />
           </linearGradient>
         </defs>
         <g transform="translate(70 120) rotate(-8)">
-          <rect width="150" height="200" rx="4" fill="#f6f1e7" />
-          <rect x="18" y="24" width="70" height="10" fill="#1a1f2e" />
+          <rect width="150" height="200" rx="2" fill="#fffcf6" stroke="#ddd3c1" />
+          <rect x="18" y="24" width="70" height="10" fill="#172230" />
           {[0, 1, 2, 3, 4].map((i) => (
-            <rect key={i} x="18" y={56 + i * 20} width={i % 2 ? 80 : 112} height="6" fill="#ddd4c4" />
+            <rect key={i} x="18" y={56 + i * 20} width={i % 2 ? 80 : 112} height="6" fill="#e9e0ce" />
           ))}
         </g>
         <g transform="translate(590 170) rotate(7)">
-          <rect width="150" height="200" rx="4" fill="#f6f1e7" />
-          <rect x="18" y="24" width="70" height="10" fill="#1a1f2e" />
+          <rect width="150" height="200" rx="2" fill="#fffcf6" stroke="#ddd3c1" />
+          <rect x="18" y="24" width="70" height="10" fill="#172230" />
           <g transform="translate(75 110) rotate(-16)">
-            <rect x="-42" y="-18" width="84" height="36" fill="none" stroke="#d24b3e" strokeWidth="4" />
-            <text x="0" y="9" textAnchor="middle" fontSize="24" fontWeight="800" fill="#d24b3e" fontFamily="system-ui">PAID</text>
+            <rect x="-42" y="-18" width="84" height="36" fill="none" stroke="#b5523f" strokeWidth="4" />
+            <text x="0" y="9" textAnchor="middle" fontSize="24" fontWeight="800" fill="#b5523f" fontFamily="system-ui">PAID</text>
           </g>
         </g>
         <rect x="190" y="120" width="420" height="270" rx="16" fill="url(#hi-metal)" />
-        <rect x="202" y="132" width="396" height="246" rx="8" fill="#0b0d14" />
-        <rect x="202" y="132" width="80" height="246" fill="#0f121b" />
+        <rect x="202" y="132" width="396" height="246" rx="8" fill="#172230" />
+        <rect x="202" y="132" width="80" height="246" fill="#1b2a3c" />
         {[0, 1, 2].map((i) => (
-          <rect key={i} x={298 + i * 98} y="164" width="88" height="56" rx="6" fill="#131726" />
+          <rect key={i} x={298 + i * 98} y="164" width="88" height="56" rx="6" fill="#1e2d40" />
         ))}
-        <rect x="298" y="232" width="284" height="132" rx="6" fill="#131726" />
+        <rect x="298" y="232" width="284" height="132" rx="6" fill="#1e2d40" />
         {[0, 1, 2, 3].map((i) => (
           <g key={i}>
-            <circle cx="314" cy={254 + i * 28} r="6" fill={i < 3 ? "#34d399" : "#f2a83b"} opacity=".8" />
-            <rect x="328" y={250 + i * 28} width={150 - i * 12} height="7" rx="3" fill="#2a3354" />
+            <circle cx="314" cy={254 + i * 28} r="6" fill={i < 3 ? "#8cc3a0" : "#d9be85"} />
+            <rect x="328" y={250 + i * 28} width={150 - i * 12} height="7" rx="3" fill="#3a5170" />
           </g>
         ))}
-        <rect x="370" y="392" width="60" height="44" fill="#1d2335" />
-        <ellipse cx="400" cy="444" rx="110" ry="10" fill="#1a2033" />
+        <rect x="370" y="392" width="60" height="44" fill="#b89150" />
+        <ellipse cx="400" cy="444" rx="110" ry="10" fill="#8a6a35" />
       </svg>
-      {note && <p className="absolute inset-x-0 top-2 text-center text-xs tracking-wide text-[#8d97b5]">{note}</p>}
+      {note && <p className="absolute inset-x-0 top-2 text-center text-xs tracking-wide text-lx-muted">{note}</p>}
     </div>
   );
 }

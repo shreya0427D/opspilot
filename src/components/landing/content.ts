@@ -66,38 +66,42 @@ export const STAGES: Stage[] = [
   },
 ];
 
-export type NodeId = "orchestrator" | "documents" | "data" | "action" | "verification" | "gemini" | "firestore";
+export type NodeId = "orchestrator" | "documents" | "research" | "data" | "action" | "verification" | "gemini" | "firestore";
 
 export interface AgentNode {
   id: NodeId;
   name: string;
   role: string;
   body: string;
-  x: number; // diagram coordinates (0-1000 x 0-640)
+  x: number; // diagram coordinates (0-1000 x 0-720)
   y: number;
   kind: "core" | "lane" | "layer";
 }
 
 export const AGENT_NODES: AgentNode[] = [
-  { id: "orchestrator", name: "Orchestrator", role: "Plans the work", body: "Classifies your request into a supported intent and builds the plan from fixed templates. It can't invent steps or tools.", x: 500, y: 320, kind: "core" },
-  { id: "documents", name: "Document Intelligence", role: "Reads invoices", body: "Extracts invoice fields from PDFs and photos and answers questions about a specific uploaded document, citing pages.", x: 170, y: 190, kind: "lane" },
+  { id: "gemini", name: "Gemini", role: "Model layer", body: "Server-side only. A shared key pool with bounded retries, same-tier fallback and project-aware quota handling.", x: 500, y: 70, kind: "layer" },
+  { id: "orchestrator", name: "Orchestrator", role: "Plans the work", body: "Classifies your request into a supported intent and builds the plan from fixed templates. It can't invent steps or tools.", x: 500, y: 300, kind: "core" },
+  { id: "documents", name: "Document Intelligence", role: "Reads invoices", body: "Extracts invoice fields from PDFs and photos into a strict schema. Document text is treated as data, never as instructions.", x: 170, y: 190, kind: "lane" },
+  { id: "research", name: "Research", role: "Answers from your records", body: "Finds the source document for an invoice and answers questions about it, citing pages. It searches your workspace only — web research isn't supported.", x: 170, y: 450, kind: "lane" },
   { id: "data", name: "Data Analysis", role: "Queries your records", body: "Finds overdue invoices, totals what's outstanding per currency and looks up clients — all with plain code, not the model.", x: 830, y: 190, kind: "lane" },
   { id: "action", name: "Action Execution", role: "Drafts and sends", body: "Drafts reminders from your templates and sends approved emails with an idempotency key so retries never duplicate.", x: 830, y: 450, kind: "lane" },
-  { id: "verification", name: "Verification & Approval", role: "Checks before anything leaves", body: "Re-checks every draft against its invoice, holds the batch for your approval, and confirms delivery with the provider.", x: 170, y: 450, kind: "lane" },
-  { id: "gemini", name: "Gemini", role: "Model layer", body: "Server-side only. A shared key pool with bounded retries, same-tier fallback and project-aware quota handling.", x: 500, y: 70, kind: "layer" },
-  { id: "firestore", name: "Firebase & Firestore", role: "Data & identity layer", body: "Authentication, workspace-scoped records and durable task state. Security rules keep each workspace private.", x: 500, y: 580, kind: "layer" },
+  { id: "verification", name: "Verification & Approval", role: "Checks before anything leaves", body: "Re-checks every draft against its invoice, holds the batch for your approval, and confirms delivery with the provider.", x: 500, y: 480, kind: "lane" },
+  { id: "firestore", name: "Firebase & Firestore", role: "Data & identity layer", body: "Authentication, workspace-scoped records and durable task state. Security rules keep each workspace private.", x: 500, y: 650, kind: "layer" },
 ];
 
 export const AGENT_LINKS: [NodeId, NodeId][] = [
+  ["orchestrator", "gemini"],
   ["orchestrator", "documents"],
+  ["orchestrator", "research"],
   ["orchestrator", "data"],
   ["orchestrator", "action"],
   ["orchestrator", "verification"],
-  ["orchestrator", "gemini"],
-  ["orchestrator", "firestore"],
   ["documents", "gemini"],
-  ["action", "verification"],
+  ["research", "documents"],
+  ["research", "firestore"],
   ["data", "firestore"],
+  ["action", "verification"],
+  ["verification", "firestore"],
 ];
 
 /** Sample run of "Chase all overdue invoices" through the system (illustration only). */
@@ -113,7 +117,7 @@ export const PLAYBACK: { from: NodeId; to: NodeId; label: string }[] = [
 export type ProductTab = "overview" | "invoices" | "clients" | "payments" | "documents" | "tasks" | "approvals";
 
 export const PRODUCT_TABS: { id: ProductTab; label: string; title: string; body: string }[] = [
-  { id: "overview", label: "Overview", title: "Your receivables at a glance", body: "Overdue and outstanding amounts per currency, items needing your attention, and recent tasks — computed from your records." },
+  { id: "overview", label: "Dashboard", title: "Your receivables at a glance", body: "Overdue and outstanding amounts per currency, items needing your attention, and recent tasks — computed from your records." },
   { id: "invoices", label: "Invoices", title: "Every invoice, with its evidence", body: "Filter by overdue, open, paid or needs review. Extracted invoices keep their checks and a link to the source page." },
   { id: "clients", label: "Clients", title: "Clients without the data entry", body: "Added by hand, imported from CSV, or created from a valid invoice. Reminders only go to saved addresses." },
   { id: "payments", label: "Payments", title: "Match payments by rule, confirm by hand", body: "Import a payments CSV; exact-rule matches are suggested and nothing is applied until you confirm." },
@@ -121,3 +125,42 @@ export const PRODUCT_TABS: { id: ProductTab; label: string; title: string; body:
   { id: "tasks", label: "Tasks", title: "A timeline for every request", body: "Each step shows its lane, attempts, timing and verification result, ending in a report of what actually happened." },
   { id: "approvals", label: "Approvals", title: "Nothing leaves without you", body: "Review a batch of drafts, edit any of them, and approve or reject each one. Sending is blocked until email is configured." },
 ];
+
+/** Feature notes per product area (shown on hover, focus or tap). All describe real behaviour. */
+export const PRODUCT_POINTS: Record<ProductTab, { title: string; detail: string }[]> = {
+  overview: [
+    { title: "Per-currency totals", detail: "Amounts are never converted between currencies, so every total is exact." },
+    { title: "Attention list", detail: "Batches awaiting approval and invoices needing review are surfaced first." },
+    { title: "Command bar", detail: "Type a request in plain English; it becomes a planned, visible task." },
+  ],
+  invoices: [
+    { title: "Evidence kept", detail: "Each extracted invoice keeps its checks and the page it came from." },
+    { title: "Review queue", detail: "Anything ambiguous waits for you instead of being guessed." },
+    { title: "Paid is protected", detail: "Paid invoices are never chased, even by a retried task." },
+  ],
+  clients: [
+    { title: "Three ways in", detail: "Add clients by hand, import a CSV, or let a valid invoice create one." },
+    { title: "No duplicates", detail: "Clients are matched by email address before anything is created." },
+    { title: "Saved addresses only", detail: "Reminders go only to addresses stored on the client." },
+  ],
+  payments: [
+    { title: "Rule-based matching", detail: "A payment is suggested only when its reference and amount match exactly." },
+    { title: "You confirm", detail: "Nothing is applied to an invoice until you accept the match." },
+    { title: "Reasons shown", detail: "Every suggestion explains which rule matched." },
+  ],
+  documents: [
+    { title: "Checked on arrival", detail: "File type is read from the content, not the extension." },
+    { title: "Private storage", detail: "Files live in a private bucket and open through short-lived links." },
+    { title: "Live status", detail: "Follow each file from upload through extraction." },
+  ],
+  tasks: [
+    { title: "Step timeline", detail: "Every step shows its lane, attempts, timing and result." },
+    { title: "Durable runs", detail: "Steps survive restarts and resume where they stopped." },
+    { title: "Honest reports", detail: "The final report reflects what actually happened, failures included." },
+  ],
+  approvals: [
+    { title: "Edit before sending", detail: "Change any draft; edits are re-checked against the invoice." },
+    { title: "Decide per email", detail: "Approve or reject each draft, or reject the whole batch." },
+    { title: "Testing mode", detail: "Until your domain is verified, approved emails go only to your test inbox." },
+  ],
+};

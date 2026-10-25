@@ -1,30 +1,41 @@
 "use client";
 
 import { ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { STAGES } from "./content";
 import { useReducedMotion } from "./hooks";
 
-// "From document to done": a connected, dimensional pipeline. Each station is drawn as an
-// isometric object (document, data layers, checkpoint, client record, approval card, completed
-// state). The marker travels the track to the selected station; the detail panel explains it.
+// "From document to done": a connected, dimensional pipeline. Each station is an isometric
+// object (document, data layers, checkpoint, client record, approval card, completed state) on
+// an ivory plinth. Gold marks the active stage and the path already travelled; sapphire gives
+// the structure. The detail panel explains the selected stage.
 
 const W = 1100;
 const H = 420;
 const STATIONS = STAGES.map((s, i) => ({ ...s, x: 110 + i * 176, y: i % 2 ? 250 : 190 }));
 const TRACK = STATIONS.map((s, i) => `${i ? "L" : "M"}${s.x} ${s.y + 70}`).join(" ");
 
+const C = {
+  gold: "#b89150",
+  goldDeep: "#8a6a35",
+  sapphire: "#24354b",
+  ink: "#172230",
+  stone: "#a79e8f",
+  line: "#ddd3c1",
+  face: "#fffcf6",
+  edge: "#cdbfa5",
+};
+
 function Station({ index, active, done }: { index: number; active: boolean; done: boolean }) {
   const s = STATIONS[index];
-  const accent = active ? "#3b5bff" : done ? "#5a6b9e" : "#9aa3bd";
-  const face = active ? "#ffffff" : "#fbf8f2";
+  const accent = active ? C.gold : done ? C.sapphire : C.stone;
   const lift = active ? -14 : 0;
-  // Isometric slab the object sits on.
+  // Isometric plinth the object sits on.
   const slab = (
     <g>
-      <path d={`M${s.x - 58} ${s.y + 70} L${s.x} ${s.y + 40} L${s.x + 58} ${s.y + 70} L${s.x} ${s.y + 100} Z`} fill={active ? "#dfe6ff" : "#ebe4d6"} />
-      <path d={`M${s.x - 58} ${s.y + 70} L${s.x} ${s.y + 100} L${s.x} ${s.y + 108} L${s.x - 58} ${s.y + 78} Z`} fill={active ? "#b9c6fb" : "#d8cfbd"} />
-      <path d={`M${s.x + 58} ${s.y + 70} L${s.x} ${s.y + 100} L${s.x} ${s.y + 108} L${s.x + 58} ${s.y + 78} Z`} fill={active ? "#a6b6f7" : "#cdc3af"} />
+      <path d={`M${s.x - 58} ${s.y + 70} L${s.x} ${s.y + 40} L${s.x + 58} ${s.y + 70} L${s.x} ${s.y + 100} Z`} fill={active ? "#efe2c4" : "#f1ebdf"} stroke={active ? C.gold : "none"} strokeWidth="1" />
+      <path d={`M${s.x - 58} ${s.y + 70} L${s.x} ${s.y + 100} L${s.x} ${s.y + 108} L${s.x - 58} ${s.y + 78} Z`} fill={active ? "#cdb27a" : "#ddd3c1"} />
+      <path d={`M${s.x + 58} ${s.y + 70} L${s.x} ${s.y + 100} L${s.x} ${s.y + 108} L${s.x + 58} ${s.y + 78} Z`} fill={active ? C.gold : "#cfc3ad"} />
     </g>
   );
   const objects = [
@@ -32,49 +43,50 @@ function Station({ index, active, done }: { index: number; active: boolean; done
     <g key="u">
       {[2, 1, 0].map((k) => (
         <g key={k} transform={`translate(${k * 6} ${-k * 6})`}>
-          <path d={`M${s.x - 26} ${s.y + 52} L${s.x - 26} ${s.y - 6} L${s.x + 18} ${s.y - 22} L${s.x + 18} ${s.y + 36} Z`} fill={face} stroke="#c9bfab" />
+          <path d={`M${s.x - 26} ${s.y + 52} L${s.x - 26} ${s.y - 6} L${s.x + 18} ${s.y - 22} L${s.x + 18} ${s.y + 36} Z`} fill={C.face} stroke={C.edge} />
         </g>
       ))}
       <path d={`M${s.x - 18} ${s.y + 6} L${s.x + 10} ${s.y - 4}`} stroke={accent} strokeWidth="3" />
-      <path d={`M${s.x - 18} ${s.y + 18} L${s.x + 4} ${s.y + 10}`} stroke="#cfc6b4" strokeWidth="3" />
+      <path d={`M${s.x - 18} ${s.y + 18} L${s.x + 4} ${s.y + 10}`} stroke={C.line} strokeWidth="3" />
     </g>,
     // Extract: data layers lifting off a page
     <g key="e">
       {[0, 1, 2].map((k) => (
-        <path key={k} d={`M${s.x - 40} ${s.y + 40 - k * 20} L${s.x} ${s.y + 20 - k * 20} L${s.x + 40} ${s.y + 40 - k * 20} L${s.x} ${s.y + 60 - k * 20} Z`} fill={k === 2 ? accent : face} fillOpacity={k === 2 ? 0.9 : 1} stroke="#c9bfab" />
+        <path key={k} d={`M${s.x - 40} ${s.y + 40 - k * 20} L${s.x} ${s.y + 20 - k * 20} L${s.x + 40} ${s.y + 40 - k * 20} L${s.x} ${s.y + 60 - k * 20} Z`} fill={k === 2 ? accent : C.face} fillOpacity={k === 2 ? 0.9 : 1} stroke={C.edge} />
       ))}
     </g>,
     // Validate: checkpoint gate
     <g key="v">
-      <rect x={s.x - 34} y={s.y - 10} width="10" height="62" fill="#2a3150" />
-      <rect x={s.x + 24} y={s.y - 10} width="10" height="62" fill="#2a3150" />
-      <rect x={s.x - 34} y={s.y - 18} width="68" height="12" rx="3" fill={accent} />
-      <circle cx={s.x} cy={s.y + 24} r="15" fill={face} stroke={accent} strokeWidth="3" />
+      <rect x={s.x - 34} y={s.y - 10} width="10" height="62" fill={C.sapphire} />
+      <rect x={s.x + 24} y={s.y - 10} width="10" height="62" fill={C.sapphire} />
+      <rect x={s.x - 34} y={s.y - 18} width="68" height="12" rx="2" fill={accent} />
+      <circle cx={s.x} cy={s.y + 24} r="15" fill={C.face} stroke={accent} strokeWidth="3" />
       <path d={`M${s.x - 7} ${s.y + 24} l5 5 l9 -10`} stroke={accent} strokeWidth="3" fill="none" strokeLinecap="round" />
     </g>,
     // Organize: client record card
     <g key="o">
-      <path d={`M${s.x - 38} ${s.y + 46} L${s.x - 38} ${s.y - 4} L${s.x + 38} ${s.y - 22} L${s.x + 38} ${s.y + 28} Z`} fill={face} stroke="#c9bfab" />
+      <path d={`M${s.x - 38} ${s.y + 46} L${s.x - 38} ${s.y - 4} L${s.x + 38} ${s.y - 22} L${s.x + 38} ${s.y + 28} Z`} fill={C.face} stroke={C.edge} />
       <circle cx={s.x - 16} cy={s.y + 14} r="10" fill={accent} />
-      <path d={`M${s.x} ${s.y + 8} L${s.x + 28} ${s.y + 1}`} stroke="#2a3150" strokeWidth="3" />
-      <path d={`M${s.x} ${s.y + 20} L${s.x + 20} ${s.y + 15}`} stroke="#cfc6b4" strokeWidth="3" />
+      <path d={`M${s.x} ${s.y + 8} L${s.x + 28} ${s.y + 1}`} stroke={C.sapphire} strokeWidth="3" />
+      <path d={`M${s.x} ${s.y + 20} L${s.x + 20} ${s.y + 15}`} stroke={C.line} strokeWidth="3" />
     </g>,
-    // Approve: card with an amber approval toggle
+    // Approve: card with an approval toggle
     <g key="a">
-      <path d={`M${s.x - 38} ${s.y + 46} L${s.x - 38} ${s.y - 4} L${s.x + 38} ${s.y - 22} L${s.x + 38} ${s.y + 28} Z`} fill={face} stroke="#c9bfab" />
-      <rect x={s.x - 22} y={s.y + 10} width="44" height="18" rx="9" fill={active ? "#f2a83b" : "#e6c792"} transform={`skewY(-13) translate(0 ${s.x * 0.231})`} />
-      <circle cx={s.x + 12} cy={s.y + 19} r="6" fill="#fff" transform={`skewY(-13) translate(0 ${s.x * 0.231})`} />
+      <path d={`M${s.x - 38} ${s.y + 46} L${s.x - 38} ${s.y - 4} L${s.x + 38} ${s.y - 22} L${s.x + 38} ${s.y + 28} Z`} fill={C.face} stroke={C.edge} />
+      <rect x={s.x - 22} y={s.y + 10} width="44" height="18" rx="9" fill={active ? C.gold : done ? C.sapphire : "#d9cdb5"} transform={`skewY(-13) translate(0 ${s.x * 0.231})`} />
+      <circle cx={s.x + 12} cy={s.y + 19} r="6" fill={C.face} transform={`skewY(-13) translate(0 ${s.x * 0.231})`} />
     </g>,
-    // Complete: sent envelope + check
+    // Complete: sent envelope with a gold seal
     <g key="c">
-      <path d={`M${s.x - 36} ${s.y + 40} L${s.x - 36} ${s.y + 2} L${s.x + 36} ${s.y - 14} L${s.x + 36} ${s.y + 24} Z`} fill={face} stroke="#c9bfab" />
-      <path d={`M${s.x - 36} ${s.y + 2} L${s.x + 2} ${s.y + 18} L${s.x + 36} ${s.y - 14}`} fill="none" stroke="#c9bfab" />
-      <circle cx={s.x + 30} cy={s.y - 18} r="13" fill={done || active ? "#2fa77a" : "#b8c0d6"} />
-      <path d={`M${s.x + 24} ${s.y - 18} l4 4 l8 -9`} stroke="#fff" strokeWidth="3" fill="none" strokeLinecap="round" />
+      <path d={`M${s.x - 36} ${s.y + 40} L${s.x - 36} ${s.y + 2} L${s.x + 36} ${s.y - 14} L${s.x + 36} ${s.y + 24} Z`} fill={C.face} stroke={C.edge} />
+      <path d={`M${s.x - 36} ${s.y + 2} L${s.x + 2} ${s.y + 18} L${s.x + 36} ${s.y - 14}`} fill="none" stroke={C.edge} />
+      <circle cx={s.x + 30} cy={s.y - 18} r="13" fill={active ? C.gold : done ? C.sapphire : C.stone} />
+      <path d={`M${s.x + 24} ${s.y - 18} l4 4 l8 -9`} stroke={C.face} strokeWidth="3" fill="none" strokeLinecap="round" />
     </g>,
   ];
   return (
     <g style={{ transition: "transform 500ms cubic-bezier(.2,.7,.2,1)" }} transform={`translate(0 ${lift})`}>
+      {active && <ellipse cx={s.x} cy={s.y + 112} rx="54" ry="10" fill={C.ink} opacity=".12" />}
       {slab}
       {objects[index]}
     </g>
@@ -86,8 +98,13 @@ export function Workflow() {
   const [playing, setPlaying] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
   const reducedMotion = useReducedMotion();
+  const tabs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const go = useCallback((i: number) => setActive(((i % STAGES.length) + STAGES.length) % STAGES.length), []);
+  const select = (i: number) => {
+    setPlaying(false);
+    go(i);
+  };
 
   useEffect(() => {
     if (!playing) return;
@@ -103,20 +120,34 @@ export function Workflow() {
     return () => clearInterval(id);
   }, [playing, reducedMotion]);
 
+  // Roving focus for the stage tabs: arrows, Home and End.
+  function onTabKey(e: KeyboardEvent<HTMLButtonElement>, i: number) {
+    const keys: Record<string, number> = { ArrowRight: i + 1, ArrowDown: i + 1, ArrowLeft: i - 1, ArrowUp: i - 1, Home: 0, End: STAGES.length - 1 };
+    if (!(e.key in keys)) return;
+    e.preventDefault();
+    const next = Math.min(STAGES.length - 1, Math.max(0, keys[e.key]));
+    select(next);
+    tabs.current[next]?.focus();
+  }
+
   const stage = STAGES[active];
   const marker = STATIONS[active];
   const focus = hovered ?? active;
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_340px] lg:items-center">
+    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_350px] lg:items-center">
       <div className="min-w-0">
         <div className="relative overflow-x-auto pb-2 [scrollbar-width:thin]">
-          <svg viewBox={`0 0 ${W} ${H}`} className="min-w-[760px] w-full" role="img" aria-label="Workflow diagram: upload, extract, validate, organize, approve, complete">
+          <span className="absolute left-0 top-0 z-10 rounded-full border border-lx-gold/50 bg-lx-porcelain px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-lx-gold-ink">
+            Demonstration
+          </span>
+          <svg viewBox={`0 0 ${W} ${H}`} className="w-full min-w-[760px]" role="img" aria-label="Workflow diagram: upload, extract, validate, organize, approve, complete">
             {/* track */}
-            <path d={TRACK} fill="none" stroke="#d8cfbd" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
+            <path d={TRACK} fill="none" stroke={C.line} strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
             {STATIONS.slice(1).map((s, i) => {
               const prev = STATIONS[i];
-              const lit = i < active || i === focus || i + 1 === focus;
+              const travelled = i < active;
+              const lit = travelled || i === focus || i + 1 === focus;
               return (
                 <line
                   key={s.id}
@@ -124,49 +155,53 @@ export function Workflow() {
                   y1={prev.y + 70}
                   x2={s.x}
                   y2={s.y + 70}
-                  stroke={lit ? "#3b5bff" : "transparent"}
+                  stroke={lit ? (travelled ? C.gold : C.sapphire) : "transparent"}
                   strokeWidth="4"
                   strokeLinecap="round"
-                  strokeDasharray={i < active ? "0" : "6 8"}
+                  strokeDasharray={travelled ? "0" : "6 8"}
                   style={{ transition: "stroke 400ms" }}
                 />
               );
             })}
-            {STATIONS.map((_, i) => (
-              <Station key={i} index={i} active={i === active} done={i < active} />
+            {STATIONS.map((s, i) => (
+              <g key={s.id} className="cursor-pointer" onClick={() => select(i)} onMouseEnter={() => setHovered(i)} onMouseLeave={() => setHovered(null)}>
+                <Station index={i} active={i === active} done={i < active} />
+              </g>
             ))}
             {/* travelling marker */}
             <g style={{ transform: `translate(${marker.x}px, ${marker.y + 70}px)`, transition: reducedMotion ? "none" : "transform 700ms cubic-bezier(.65,0,.35,1)" }}>
-              <circle r="12" fill="#3b5bff" opacity=".18" />
-              <circle r="6" fill="#3b5bff" />
+              <circle r="13" fill={C.gold} opacity=".22" />
+              <circle r="6" fill={C.goldDeep} stroke={C.face} strokeWidth="2" />
             </g>
             {STATIONS.map((s, i) => (
-              <text key={s.id} x={s.x} y={s.y + 140} textAnchor="middle" className="font-sans" fontSize="17" fontWeight={i === active ? 700 : 500} fill={i === active ? "#141a2b" : "#6b6f80"}>
-                {String(i + 1).padStart(2, "0")} {s.name}
+              <text key={s.id} x={s.x} y={s.y + 140} textAnchor="middle" className="font-sans" fontSize="17" fontWeight={i === active ? 700 : 500} fill={i === active ? C.ink : i === focus ? C.sapphire : "#6e675c"}>
+                <tspan fill={i === active ? C.goldDeep : "#a79e8f"} fontWeight="500">{String(i + 1).padStart(2, "0")}</tspan> {s.name}
               </text>
             ))}
           </svg>
         </div>
 
-        {/* Accessible controls: one button per stage */}
+        {/* Accessible controls: one tab per stage */}
         <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Workflow stages">
           {STAGES.map((s, i) => (
             <button
               key={s.id}
+              ref={(el) => {
+                tabs.current[i] = el;
+              }}
               role="tab"
               type="button"
               id={`wf-tab-${s.id}`}
               aria-selected={i === active}
               aria-controls="wf-panel"
-              onClick={() => {
-                setPlaying(false);
-                go(i);
-              }}
+              tabIndex={i === active ? 0 : -1}
+              onClick={() => select(i)}
+              onKeyDown={(e) => onTabKey(e, i)}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
               onFocus={() => setHovered(i)}
               onBlur={() => setHovered(null)}
-              className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#3b5bff] ${i === active ? "border-[#141a2b] bg-[#141a2b] text-[#f4efe6]" : "border-[#141a2b]/15 text-[#3b4050] hover:border-[#141a2b]/40"}`}
+              className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold ${i === active ? "border-lx-sapphire bg-lx-sapphire text-lx-porcelain" : "border-lx-line bg-lx-porcelain text-lx-muted hover:border-lx-gold hover:text-lx-ink"}`}
             >
               {s.name}
             </button>
@@ -174,26 +209,27 @@ export function Workflow() {
         </div>
       </div>
 
-      <div id="wf-panel" role="tabpanel" aria-labelledby={`wf-tab-${stage.id}`} aria-live="polite" className="rounded-2xl border border-[#141a2b]/10 bg-white/70 p-6 shadow-[0_30px_60px_-30px_rgba(20,26,43,.35)]">
-        <p className="text-xs font-medium uppercase tracking-[0.2em] text-[#3b5bff]">
+      <div id="wf-panel" role="tabpanel" aria-labelledby={`wf-tab-${stage.id}`} aria-live="polite" className="relative border border-lx-line bg-lx-porcelain p-6 shadow-[0_30px_60px_-34px_rgba(23,34,48,.45)]">
+        <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-lx-gold-deep via-lx-gold to-transparent" />
+        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-lx-gold-ink">
           Step {String(active + 1).padStart(2, "0")} / {String(STAGES.length).padStart(2, "0")}
         </p>
-        <h3 className="mt-2 font-display text-4xl leading-tight text-[#141a2b]">{stage.name}</h3>
-        <p className="mt-1 text-sm text-[#6b6f80]">{stage.kicker}</p>
-        <p className="mt-4 leading-relaxed text-[#2c3142]">{stage.body}</p>
-        <ul className="mt-4 space-y-2 text-sm text-[#3b4050]">
+        <h3 className="mt-2 font-display text-4xl leading-tight text-lx-ink">{stage.name}</h3>
+        <p className="mt-1 text-sm text-lx-muted">{stage.kicker}</p>
+        <p className="mt-4 leading-relaxed text-lx-sapphire">{stage.body}</p>
+        <ul className="mt-4 space-y-2 text-sm text-lx-muted">
           {stage.detail.map((d) => (
-            <li key={d} className="flex gap-2">
-              <span className="mt-2 size-1.5 shrink-0 rounded-full bg-[#3b5bff]" />
+            <li key={d} className="flex gap-2.5">
+              <span className="mt-[7px] size-1.5 shrink-0 rotate-45 bg-lx-gold" />
               {d}
             </li>
           ))}
         </ul>
         <div className="mt-6 flex items-center gap-2">
-          <button type="button" onClick={() => { setPlaying(false); go(active - 1); }} disabled={active === 0} aria-label="Previous step" className="grid size-10 place-items-center rounded-full border border-[#141a2b]/15 transition-colors hover:bg-[#141a2b]/5 disabled:opacity-35">
+          <button type="button" onClick={() => select(active - 1)} disabled={active === 0} aria-label="Previous step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire disabled:opacity-35">
             <ChevronLeftIcon className="size-4" />
           </button>
-          <button type="button" onClick={() => { setPlaying(false); go(active + 1); }} disabled={active === STAGES.length - 1} aria-label="Next step" className="grid size-10 place-items-center rounded-full border border-[#141a2b]/15 transition-colors hover:bg-[#141a2b]/5 disabled:opacity-35">
+          <button type="button" onClick={() => select(active + 1)} disabled={active === STAGES.length - 1} aria-label="Next step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire disabled:opacity-35">
             <ChevronRightIcon className="size-4" />
           </button>
           <button
@@ -202,17 +238,17 @@ export function Workflow() {
               if (active === STAGES.length - 1) go(0);
               setPlaying((p) => !p);
             }}
-            className="ml-auto inline-flex items-center gap-2 rounded-full bg-[#141a2b] px-4 py-2 text-sm font-medium text-[#f4efe6]"
+            className="ml-auto inline-flex items-center gap-2 rounded-full bg-lx-sapphire px-4 py-2 text-sm font-medium text-lx-porcelain transition-colors hover:bg-lx-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold"
           >
             {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
             {playing ? "Pause" : active === STAGES.length - 1 ? "Replay" : "Play"}
           </button>
-          <button type="button" onClick={() => { setPlaying(false); go(0); }} aria-label="Reset to the first step" className="grid size-10 place-items-center rounded-full border border-[#141a2b]/15 transition-colors hover:bg-[#141a2b]/5">
+          <button type="button" onClick={() => select(0)} aria-label="Reset to the first step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire">
             <RotateCcwIcon className="size-4" />
           </button>
         </div>
-        <p className="mt-5 border-t border-[#141a2b]/10 pt-4 text-xs text-[#6b6f80]">
-          An illustration of the workflow — no real invoice is being processed here.
+        <p className="mt-5 border-t border-lx-line pt-4 text-xs text-lx-muted">
+          Demonstration of the workflow — no real invoice is being processed here.
         </p>
       </div>
     </div>
