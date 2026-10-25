@@ -31,17 +31,24 @@ const PLAIN_ADDRESS = /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i;
 
 const blocked = (reason: string): EmailConfig => ({ ok: false, mode: "blocked", reason });
 
+const RESEND_TEST_DOMAIN = "resend.dev";
+
+/** An env value as pasted into a dashboard: trims whitespace and stray surrounding quotes. */
+const bare = (value: string | undefined) => (value ?? "").trim().replace(/^["']+|["']+$/g, "").trim();
+
 /** Pure check of the sender settings, so it can be unit-tested and shown to the user. */
 export function checkEmailConfig(apiKey: string | undefined, from: string | undefined, testRecipient?: string): EmailConfig {
   if (!apiKey) return blocked("Email sending isn't set up: RESEND_API_KEY is missing.");
   if (!apiKey.startsWith("re_")) return blocked("Email sending isn't set up: RESEND_API_KEY doesn't look like a Resend key.");
-  if (!from) return blocked("Email sending isn't set up: EMAIL_FROM is missing.");
-  const address = from.trim();
+  const address = bare(from);
+  if (!address) return blocked("Email sending isn't set up: EMAIL_FROM is missing.");
   if (!PLAIN_ADDRESS.test(address)) {
     return blocked("EMAIL_FROM must be a plain address like reminders@yourdomain.com (the sender name is added automatically).");
   }
-  if (address.toLowerCase() === RESEND_TEST_SENDER) {
-    const to = testRecipient?.trim();
+  // Every sender on Resend's shared domain is testing-only (Resend refuses other recipients),
+  // whatever its local part — so any resend.dev sender means testing mode, not just onboarding@.
+  if (address.split("@")[1].toLowerCase() === RESEND_TEST_DOMAIN) {
+    const to = bare(testRecipient);
     if (!to || !PLAIN_ADDRESS.test(to)) {
       return blocked("Testing mode needs EMAIL_TEST_RECIPIENT set to the email address of your Resend account.");
     }
@@ -71,35 +78,40 @@ export type SendOutcome =
 
 const TRANSIENT = new Set(["rate_limit_exceeded", "internal_server_error", "application_error", "concurrent_idempotent_requests"]);
 
-export async function sendEmail(input: {
+export interface OutgoingEmail {
   fromName: string;
   to: string;
   replyTo: string;
   subject: string;
   text: string;
   idempotencyKey: string;
-}): Promise<SendOutcome> {
+}
+
+/**
+ * The exact message handed to Resend. In testing mode the only recipient is the configured test
+ * address; the client's address appears solely in the labelled subject and body, never in to/cc/bcc.
+ */
+export function buildPayload(config: Extract<EmailConfig, { ok: true }>, input: OutgoingEmail) {
+  const safeName = input.fromName.replace(/[<>"\r\n]/g, "").slice(0, 60);
+  const testMode = config.mode === "testing";
+  return {
+    from: `${safeName} via OpsPilot <${config.from}>`,
+    to: [testMode ? config.testRecipient : input.to],
+    replyTo: input.replyTo,
+    subject: testMode ? `[TEST — would go to ${input.to}] ${input.subject}` : input.subject,
+    text: testMode ? `This is an OpsPilot test email. In production it would be sent to ${input.to}.\n\n---\n\n${input.text}` : input.text,
+  };
+}
+
+export async function sendEmail(input: OutgoingEmail): Promise<SendOutcome> {
   const config = emailConfig();
   if (!config.ok) return { kind: "rejected", message: config.reason };
-  const safeName = input.fromName.replace(/[<>"\r\n]/g, "").slice(0, 60);
   // Testing mode never contacts clients: the owner receives the email, clearly labelled.
   const testMode = config.mode === "testing";
-  const to = testMode ? config.testRecipient : input.to;
-  const subject = testMode ? `[TEST — would go to ${input.to}] ${input.subject}` : input.subject;
-  const text = testMode
-    ? `This is an OpsPilot test email. In production it would be sent to ${input.to}.\n\n---\n\n${input.text}`
-    : input.text;
+  const payload = buildPayload(config, input);
+  const to = payload.to[0];
   try {
-    const { data, error } = await client().emails.send(
-      {
-        from: `${safeName} via OpsPilot <${config.from}>`,
-        to,
-        replyTo: input.replyTo,
-        subject,
-        text,
-      },
-      { idempotencyKey: input.idempotencyKey },
-    );
+    const { data, error } = await client().emails.send(payload, { idempotencyKey: input.idempotencyKey });
     if (data) return { kind: "sent", providerMessageId: data.id, deliveredTo: to, testMode };
     if (error && TRANSIENT.has(error.name)) return { kind: "retry", message: error.message };
     return { kind: "rejected", message: error?.message ?? "Email provider rejected the message" };

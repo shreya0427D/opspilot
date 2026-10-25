@@ -1,13 +1,21 @@
 "use client";
 
 import { where } from "firebase/firestore";
-import { LogOutIcon, MenuIcon, SparklesIcon } from "lucide-react";
+import { LogOutIcon, MenuIcon, SettingsIcon, SparklesIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 import { Logo } from "@/components/logo";
 import { useAuth, useWsPath } from "@/components/providers/auth-provider";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLiveCollection } from "@/lib/client/firestore-hooks";
@@ -140,13 +148,29 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="flex-1 truncate">Tell OpsPilot what to do…</span>
               <kbd className="hidden rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 sm:inline">Ctrl K</kbd>
             </button>
-            <span
-              className="ml-auto hidden size-9 shrink-0 place-items-center rounded-full bg-[#172230] text-sm font-semibold text-[#d9be85] ring-1 ring-[#b89150]/50 sm:grid"
-              title={user.email ?? undefined}
-              aria-label={`Signed in as ${user.email}`}
-            >
-              {initial}
-            </span>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                className="ml-auto grid size-9 shrink-0 place-items-center rounded-full bg-[#172230] text-sm font-semibold text-[#d9be85] ring-1 ring-[#b89150]/50 transition-shadow hover:ring-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[state=open]:ring-2"
+                aria-label="Account menu"
+              >
+                {initial}
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={8} className="w-64 border-t-2 border-t-[#b89150] p-1.5">
+                <DropdownMenuLabel className="px-2 py-1.5">
+                  <div className="truncate text-sm font-medium text-foreground" title={workspace?.name}>{workspace?.name ?? "Workspace"}</div>
+                  <div className="truncate text-xs font-normal text-muted-foreground" title={user.email ?? undefined}>{user.email}</div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link href="/app/settings">
+                    <SettingsIcon /> Settings
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => void signOut()}>
+                  <LogOutIcon /> Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </header>
         <main className="flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-10">
