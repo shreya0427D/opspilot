@@ -150,11 +150,13 @@ function Documents() {
           setDragging(false);
           upload(Array.from(e.dataTransfer.files));
         }}
-        className={`mb-6 flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-10 text-center transition-colors ${dragging ? "border-primary bg-muted/60" : ""}`}
+        className={`relative mb-6 flex flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed px-6 py-10 text-center transition-colors ${dragging ? "border-lx-gold bg-accent/60" : "border-input bg-card"}`}
       >
-        <FileUpIcon className="mb-2 size-6 text-muted-foreground" aria-hidden />
-        <p className="font-medium">Drop invoice files here</p>
-        <p className="mt-1 text-sm text-muted-foreground">PDF, PNG, JPG or WEBP · up to 10 MB and 20 pages each · 20 files at a time</p>
+        <span className="mb-3 grid size-12 place-items-center rounded-full bg-lx-ink text-lx-gold-light ring-4 ring-lx-gold/15">
+          <FileUpIcon className="size-5" aria-hidden />
+        </span>
+        <p className="font-display text-2xl">Drop invoice files here</p>
+        <p className="mt-1 max-w-md text-sm text-muted-foreground">PDF, PNG, JPG or WEBP · up to 10 MB and 20 pages each · 20 files at a time</p>
         <input
           ref={input}
           type="file"
@@ -164,18 +166,18 @@ function Documents() {
           disabled={!workspaceId}
           onChange={(e) => e.target.files && upload(Array.from(e.target.files))}
         />
-        <Button className="mt-4" onClick={() => input.current?.click()} disabled={busy || !workspaceId}>
+        <Button size="lg" className="mt-5" onClick={() => input.current?.click()} disabled={busy || !workspaceId}>
           {workspaceId ? (busy ? "Uploading…" : "Choose files") : "Loading…"}
         </Button>
       </div>
 
       {entries.length > 0 && (
-        <ul className="mb-6 divide-y rounded-xl border" aria-live="polite" aria-label="Uploads">
+        <ul className="mb-6 divide-y divide-border overflow-hidden rounded-xl border border-border bg-card" aria-live="polite" aria-label="Uploads">
           {entries.map((e) => {
             const { status, error } = liveStatus(e);
             return (
               <li key={e.key} className="flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
-                <span className="min-w-0 flex-1 truncate font-medium">{e.file.name}</span>
+                <span className="min-w-0 flex-1 basis-48 truncate font-medium" title={e.file.name}>{e.file.name}</span>
                 {status === "uploading" && (
                   <span className="flex w-40 items-center gap-2">
                     <Progress value={e.progress} className="flex-1" />
@@ -194,9 +196,9 @@ function Documents() {
                 )}
                 {status === "done" && <StatusBadge status="processed" />}
                 {status === "failed" && (
-                  <span className="flex flex-wrap items-center gap-2">
+                  <span className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                     <StatusBadge status="failed" />
-                    <span className="text-xs text-destructive">{error}</span>
+                    <span className="min-w-0 flex-1 text-xs break-words text-destructive">{error}</span>
                     {!e.documentId && (
                       <Button size="xs" variant="outline" onClick={() => void run([e])}>
                         <RotateCcwIcon /> Retry
@@ -216,7 +218,7 @@ function Documents() {
       ) : docs.data.length === 0 ? (
         <EmptyState title="No documents yet" description="Uploaded files and their extraction status appear here." />
       ) : (
-        <div className="rounded-xl border">
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <Table>
             <TableHeader>
               <TableRow>
@@ -229,9 +231,9 @@ function Documents() {
             <TableBody>
               {docs.data.map((d) => (
                 <TableRow key={d.id}>
-                  <TableCell className="max-w-56">
-                    <div className="truncate font-medium">{d.fileName}</div>
-                    {d.error && <div className="truncate text-xs text-muted-foreground">{d.error}</div>}
+                  <TableCell className="max-w-72 whitespace-normal">
+                    <div className="truncate font-medium" title={d.fileName}>{d.fileName}</div>
+                    {d.error && <div className="mt-0.5 text-xs break-words text-muted-foreground">{d.error}</div>}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={d.status} />
@@ -285,7 +287,7 @@ function StorageStatus() {
     api<StorageStatusResult>("/api/storage-status").then(setStatus, (err) => setError(errorMessage(err)));
   }, []);
   return (
-    <details className="mb-4 rounded-lg border px-3 py-2 text-xs text-muted-foreground">
+    <details className="mb-4 rounded-lg border border-border bg-card px-3 py-2 text-xs break-words text-muted-foreground">
       <summary className="cursor-pointer select-none">
         Storage status:{" "}
         {error ? `couldn't check (${error})` : !status ? "checking…" : status.initialized ? "ready" : "not ready"}

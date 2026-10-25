@@ -92,7 +92,7 @@ function InvoicesInner() {
                     </Link>
                     {inv.isSample && <StatusBadge status="sample" className="ml-2" />}
                   </TableCell>
-                  <TableCell className="max-w-40 truncate">
+                  <TableCell className="max-w-48 truncate" title={(inv.clientId ? clientName.get(inv.clientId) : inv.clientNameRaw) ?? undefined}>
                     {inv.clientId ? clientName.get(inv.clientId) ?? "—" : <span className="text-muted-foreground">{inv.clientNameRaw ?? "Unlinked"}</span>}
                   </TableCell>
                   <TableCell className="hidden md:table-cell">{formatDate(inv.dueDate)}</TableCell>

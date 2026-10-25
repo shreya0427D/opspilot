@@ -193,7 +193,7 @@ export default function ApprovalPage() {
                   </Button>
                   <Button
                     size="sm"
-                    variant={d.decision === "reject" ? "secondary" : "outline"}
+                    variant={d.decision === "reject" ? "destructive" : "outline"}
                     disabled={savingItem !== null}
                     onClick={() => decideOne(it, "reject")}
                     aria-pressed={d.decision === "reject"}

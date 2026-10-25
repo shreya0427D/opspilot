@@ -8,7 +8,7 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto max-w-2xl px-4 py-12 text-sm leading-relaxed">
       <Link href="/" className="text-muted-foreground hover:text-foreground">← OpsPilot</Link>
-      <h1 className="mt-6 text-2xl font-semibold">Privacy policy (draft)</h1>
+      <h1 className="mt-6 font-display text-4xl">Privacy policy (draft)</h1>
       <p className="mt-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-warning">
         This is a draft for the private beta and has not been reviewed by a lawyer.
       </p>

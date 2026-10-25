@@ -69,7 +69,7 @@ export default function ClientsPage() {
                       </Link>
                       {c.isSample && <StatusBadge status="sample" className="ml-2" />}
                     </TableCell>
-                    <TableCell className="hidden max-w-60 truncate text-muted-foreground sm:table-cell">{c.emails.join(", ") || "—"}</TableCell>
+                    <TableCell className="hidden max-w-64 truncate text-muted-foreground sm:table-cell" title={c.emails.join(", ")}>{c.emails.join(", ") || "—"}</TableCell>
                     <TableCell className="text-right tabular-nums">
                       {totals.length ? totals.map(([cur, m]) => <div key={cur}>{money(m, cur)}</div>) : "—"}
                     </TableCell>

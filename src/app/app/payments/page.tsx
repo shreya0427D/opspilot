@@ -72,7 +72,7 @@ export default function PaymentsPage() {
                       {p.isSample && <StatusBadge status="sample" className="ml-2" />}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">{money(p.amountMinor, p.currency)}</TableCell>
-                    <TableCell className="hidden max-w-56 truncate text-muted-foreground md:table-cell">{p.reference ?? p.payerName ?? "—"}</TableCell>
+                    <TableCell className="hidden max-w-56 truncate text-muted-foreground md:table-cell" title={p.reference ?? p.payerName ?? undefined}>{p.reference ?? p.payerName ?? "—"}</TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
                         <StatusBadge status={p.matchStatus} />
@@ -95,7 +95,7 @@ export default function PaymentsPage() {
                         <div className="flex justify-end gap-1">
                           <select
                             aria-label="Invoice to apply payment to"
-                            className="h-7 max-w-36 rounded-md border border-input bg-transparent px-1.5 text-xs"
+                            className="h-8 max-w-40 rounded-md border border-input bg-card px-2 text-xs"
                             value={choice[p.id] ?? ""}
                             onChange={(e) => setChoice((c) => ({ ...c, [p.id]: e.target.value }))}
                           >

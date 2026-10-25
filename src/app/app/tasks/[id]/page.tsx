@@ -48,7 +48,7 @@ function StepIcon({ status }: { status: Step["status"] }) {
     case "failed":
       return <XCircleIcon className={cn(cls, "text-destructive")} />;
     case "running":
-      return <Loader2Icon className={cn(cls, "animate-spin text-info")} />;
+      return <Loader2Icon className={cn(cls, "animate-spin text-info motion-reduce:animate-none")} />;
     case "waiting":
     case "queued":
       return <ClockIcon className={cn(cls, "text-warning")} />;
@@ -199,11 +199,11 @@ export default function TaskDetailPage() {
                 const outputSummary = typeof s.output?.summary === "string" ? s.output.summary : null;
                 return (
                   <li key={s.id} className="relative flex gap-3">
-                    {i < steps.data.length - 1 && <span className="absolute top-6 left-2.5 h-[calc(100%-0.5rem)] w-px bg-border" aria-hidden />}
+                    {i < steps.data.length - 1 && <span className={`absolute top-6 left-2.5 h-[calc(100%-0.5rem)] w-px ${s.status === "succeeded" ? "bg-lx-gold/60" : "bg-border"}`} aria-hidden />}
                     <StepIcon status={s.status} />
                     <div className="min-w-0 flex-1 pb-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-medium">{s.label}</span>
+                        <span className="text-sm font-medium break-words">{s.label}</span>
                         <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
                           <LaneIcon className="size-3" /> {lane.label}
                         </span>

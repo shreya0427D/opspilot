@@ -38,11 +38,11 @@ export default function TasksPage() {
             <TableBody>
               {tasks.data.map((t) => (
                 <TableRow key={t.id}>
-                  <TableCell className="max-w-72">
-                    <Link href={`/app/tasks/${t.id}`} className="block truncate font-medium underline-offset-4 hover:underline">
+                  <TableCell className="max-w-80 whitespace-normal">
+                    <Link href={`/app/tasks/${t.id}`} className="block truncate font-medium underline-offset-4 hover:underline" title={t.command}>
                       {t.command}
                     </Link>
-                    {t.summary && <div className="truncate text-xs text-muted-foreground">{t.summary}</div>}
+                    {t.summary && <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground" title={t.summary}>{t.summary}</div>}
                   </TableCell>
                   <TableCell>
                     <StatusBadge status={t.status} />
