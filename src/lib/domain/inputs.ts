@@ -95,6 +95,12 @@ export const finalizeUploadInput = z.object({
   fileName: z.string().min(1).max(255),
 });
 
+export const approvalItemDecisionInput = z.object({
+  decision: z.enum(["approve", "reject"]),
+  subject: z.string().trim().min(1).max(200).optional(),
+  body: z.string().trim().min(1).max(5000).optional(),
+});
+
 export const approvalDecisionInput = z.object({
   items: z
     .array(

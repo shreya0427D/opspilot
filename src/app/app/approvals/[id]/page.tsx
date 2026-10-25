@@ -41,6 +41,7 @@ export default function ApprovalPage() {
   const [edits, setEdits] = useState<Record<string, Decision>>({});
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [savingItem, setSavingItem] = useState<string | null>(null);
   const [sender, setSender] = useState<{ ok: boolean; mode?: "production" | "testing" | "blocked"; reason?: string; testRecipient?: string } | null>(null);
 
   useEffect(() => {
@@ -53,8 +54,15 @@ export default function ApprovalPage() {
     const out: Record<string, Decision> = {};
     for (const it of items.data) {
       out[it.id] = edits[it.id] ?? {
-        // Nothing is pre-approved unless it could actually be sent.
-        decision: it.isSample || !it.verification.ok || sender?.ok !== true ? "reject" : "approve",
+        // A decision saved on the server wins; otherwise nothing is pre-approved unless it could be sent.
+        decision:
+          it.status === "approved" || it.status === "rejected"
+            ? it.status === "approved"
+              ? "approve"
+              : "reject"
+            : it.isSample || !it.verification.ok || sender?.ok !== true
+              ? "reject"
+              : "approve",
         subject: it.subject,
         body: it.body,
       };
@@ -70,6 +78,25 @@ export default function ApprovalPage() {
   const approved = items.data.filter((it) => decisions[it.id]?.decision === "approve");
   const approvedTotals = totalsByCurrency(approved, (it) => ({ currency: it.currency, minor: it.amountDueMinor }));
   const set = (itemId: string, patch: Partial<Decision>) => setEdits((e) => ({ ...e, [itemId]: { ...decisions[itemId], ...patch } }));
+
+  /** Saves one email's decision on the server (re-checked there); the batch stays pending. */
+  async function decideOne(it: ApprovalItem & { id: string }, decision: Decision["decision"]) {
+    if (savingItem) return;
+    const d = decisions[it.id];
+    const changed = d.subject !== it.subject || d.body !== it.body;
+    setSavingItem(it.id);
+    try {
+      await api(`/api/approvals/${id}/items/${it.id}`, {
+        body: { decision, ...(changed && decision === "approve" ? { subject: d.subject, body: d.body } : {}) },
+      });
+      set(it.id, { decision });
+      toast.success(decision === "approve" ? `Approved email to ${it.to}. Use “Send” above to send approved emails.` : `Rejected email to ${it.to}`);
+    } catch (err) {
+      toast.error(errorMessage(err));
+    } finally {
+      setSavingItem(null);
+    }
+  }
 
   async function submit() {
     setBusy(true);
@@ -149,6 +176,8 @@ export default function ApprovalPage() {
               <StatusBadge status="ai_draft" />
               <StatusBadge status={it.stage} />
               {it.isSample && <StatusBadge status="sample" />}
+              {pending && (it.status === "approved" || it.status === "rejected") && <StatusBadge status={it.status} />}
+              {savingItem === it.id && <span className="text-xs text-muted-foreground">Saving…</span>}
               {!pending && <StatusBadge status={it.status === "sent" && it.providerStatus ? it.providerStatus : it.status} className="ml-auto" />}
               {!pending && it.testMode && <span className="text-xs text-warning">Test → {it.deliveredTo}</span>}
               {pending && (
@@ -156,8 +185,8 @@ export default function ApprovalPage() {
                   <Button
                     size="sm"
                     variant={d.decision === "approve" ? "default" : "outline"}
-                    disabled={blocked || sender?.ok === false}
-                    onClick={() => set(it.id, { decision: "approve" })}
+                    disabled={blocked || sender?.ok === false || savingItem !== null}
+                    onClick={() => decideOne(it, "approve")}
                     aria-pressed={d.decision === "approve"}
                   >
                     <CheckIcon /> Approve
@@ -165,7 +194,8 @@ export default function ApprovalPage() {
                   <Button
                     size="sm"
                     variant={d.decision === "reject" ? "secondary" : "outline"}
-                    onClick={() => set(it.id, { decision: "reject" })}
+                    disabled={savingItem !== null}
+                    onClick={() => decideOne(it, "reject")}
                     aria-pressed={d.decision === "reject"}
                   >
                     <XIcon /> Reject
