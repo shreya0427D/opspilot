@@ -77,6 +77,11 @@ registerTool({
         isSample: inv.isSample,
       });
     }
+    // Sample invoices only stand in for an empty workspace. Once real overdue invoices exist,
+    // drafts are made for those alone (samples are never sendable anyway).
+    if (items.some((i) => !i.isSample)) {
+      for (let i = items.length - 1; i >= 0; i--) if (items[i].isSample) items.splice(i, 1);
+    }
     items.sort((a, b) => b.daysOverdue - a.daysOverdue);
     const totals = totalsByCurrency(items, (i) => ({ currency: i.currency, minor: i.outstandingMinor }));
     const totalsText = Object.entries(totals).map(([c, m]) => formatMinor(m, c)).join(", ") || "nothing";
