@@ -19,18 +19,27 @@ const FREE_MAIL_DOMAINS = new Set([
 
 export type EmailConfig = { ok: true; from: string } | { ok: false; reason: string };
 
+const PLAIN_ADDRESS = /^[^\s@<>"]+@[^\s@<>"]+\.[a-z]{2,}$/i;
+
+/** Pure check of the sender settings, so it can be unit-tested and shown to the user. */
+export function checkEmailConfig(apiKey: string | undefined, from: string | undefined): EmailConfig {
+  if (!apiKey) return { ok: false, reason: "Email sending isn't set up: RESEND_API_KEY is missing" };
+  if (!apiKey.startsWith("re_")) return { ok: false, reason: "Email sending isn't set up: RESEND_API_KEY doesn't look like a Resend key" };
+  if (!from) return { ok: false, reason: "Email sending isn't set up: EMAIL_FROM is missing" };
+  const address = from.trim();
+  if (!PLAIN_ADDRESS.test(address)) {
+    return { ok: false, reason: "EMAIL_FROM must be a plain address like reminders@yourdomain.com (the sender name is added automatically)" };
+  }
+  const domain = address.split("@")[1].toLowerCase();
+  if (FREE_MAIL_DOMAINS.has(domain)) {
+    return { ok: false, reason: `EMAIL_FROM uses ${domain}, which can't be verified in Resend. Use an address on a domain you own and have verified in Resend` };
+  }
+  return { ok: true, from: address };
+}
+
 export function emailConfig(): EmailConfig {
   const { RESEND_API_KEY, EMAIL_FROM } = env();
-  if (!RESEND_API_KEY) return { ok: false, reason: "Email sending isn't configured (RESEND_API_KEY missing)" };
-  if (!EMAIL_FROM) return { ok: false, reason: "Email sending isn't configured (EMAIL_FROM missing)" };
-  const domain = EMAIL_FROM.split("@")[1]?.toLowerCase().replace(/>$/, "");
-  if (!domain || FREE_MAIL_DOMAINS.has(domain)) {
-    return {
-      ok: false,
-      reason: `EMAIL_FROM must use a domain verified in Resend, not ${domain ?? "an invalid address"}`,
-    };
-  }
-  return { ok: true, from: EMAIL_FROM };
+  return checkEmailConfig(RESEND_API_KEY, EMAIL_FROM);
 }
 
 let resend: Resend | null = null;

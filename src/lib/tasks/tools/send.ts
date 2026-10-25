@@ -140,6 +140,7 @@ registerTool({
         case "sent": {
           // Confirm with the provider instead of trusting our own record.
           const found = item.providerMessageId ? await lookupEmail(item.providerMessageId) : null;
+          if (found) await doc.ref.update({ providerStatus: found.lastEvent });
           if (!found) report.needsReview.push(`${label}: accepted by the provider but could not be confirmed yet`);
           else if (["bounced", "failed", "suppressed", "complained", "canceled"].includes(found.lastEvent)) {
             report.failed.push(`${label}: provider reports "${found.lastEvent}"`);

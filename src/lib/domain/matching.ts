@@ -112,3 +112,50 @@ export function suggestPaymentMatch(
   }
   return { kind: "suggested", invoiceId: best.inv.id, reason: best.reasons.join("; ") };
 }
+
+const EMAIL_RE = /^[^\s@<>()[\],;:"]+@[^\s@<>()[\],;:"]+\.[a-z]{2,}$/i;
+
+export type ClientResolution =
+  | { kind: "matched"; clientId: string; message: string }
+  | { kind: "create"; name: string; email: string; message: string }
+  | { kind: "review"; message: string };
+
+/**
+ * Decides how an extracted invoice's customer maps onto saved clients. Email is the strongest
+ * identifier; a name alone is only trusted when it matches exactly one saved client. Anything
+ * ambiguous or contradictory goes to review. Nothing is guessed: no email means no new client.
+ */
+export function resolveClient(
+  hint: { name?: string | null; email?: string | null },
+  clients: ClientCandidate[],
+): ClientResolution {
+  const name = hint.name?.trim() || null;
+  const rawEmail = hint.email?.trim().toLowerCase() || null;
+  const email = rawEmail && EMAIL_RE.test(rawEmail) ? rawEmail : null;
+  const norm = name ? normalizeName(name) : "";
+  const byName = norm
+    ? clients.filter((c) => c.normalizedName === norm || (c.company && normalizeName(c.company) === norm))
+    : [];
+
+  if (email) {
+    const byEmail = clients.filter((c) => c.emails.some((e) => e.toLowerCase() === email));
+    if (byEmail.length > 1) return { kind: "review", message: `Several saved clients use ${email}` };
+    if (byEmail.length === 1) {
+      const other = byName.find((c) => c.id !== byEmail[0].id);
+      if (other && !byName.some((c) => c.id === byEmail[0].id)) {
+        return { kind: "review", message: `Invoice email belongs to one saved client but the name matches another` };
+      }
+      return { kind: "matched", clientId: byEmail[0].id, message: "Matched to a saved client by email" };
+    }
+    if (byName.length > 0) {
+      return { kind: "review", message: `A saved client named “${name}” uses a different email than this invoice` };
+    }
+    if (!name) return { kind: "review", message: "Customer name missing on the invoice" };
+    return { kind: "create", name, email, message: `New client “${name}” created from the invoice` };
+  }
+
+  const emailNote = rawEmail ? "Customer email on the invoice looks invalid" : "No customer email on the invoice";
+  if (byName.length === 1) return { kind: "matched", clientId: byName[0].id, message: "Matched to a saved client by name" };
+  if (byName.length > 1) return { kind: "review", message: `Several saved clients match “${name}”` };
+  return { kind: "review", message: name ? `${emailNote}, and no saved client is named “${name}”` : "Customer name and email missing" };
+}

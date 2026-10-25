@@ -8,6 +8,7 @@ import { AuthCard } from "@/components/auth/auth-card";
 import { GoogleButton } from "@/components/auth/google-button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { errorMessage } from "@/lib/client/api";
@@ -18,6 +19,7 @@ export default function SignupPage() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const hydrated = useHydrated();
 
   async function afterGoogle(user: User) {
     try {
@@ -86,7 +88,7 @@ export default function SignupPage() {
             <Input id="password" name="password" type="password" autoComplete="new-password" minLength={8} required />
             <p className="text-xs text-muted-foreground">At least 8 characters.</p>
           </div>
-          <Button type="submit" className="w-full" disabled={busy}>
+          <Button type="submit" className="w-full" disabled={busy || !hydrated}>
             {busy ? "Creating account…" : "Create account"}
           </Button>
         </form>

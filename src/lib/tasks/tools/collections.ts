@@ -58,6 +58,8 @@ registerTool({
         continue;
       }
       if (!inv.dueDate || !inv.currency || !inv.number) continue;
+      // Defense in depth: a PAID marking is never chased unless a person reviewed and confirmed it.
+      if (inv.paymentEvidence?.marking === "paid" && inv.reviewStatus !== "confirmed") continue;
       if (clientFilter && inv.clientId !== clientFilter) continue;
       if (args.invoiceNumber && inv.number.toLowerCase() !== args.invoiceNumber.toLowerCase()) continue;
       const late = daysOverdue(inv.dueDate, today);

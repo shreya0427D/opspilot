@@ -31,7 +31,8 @@ curl -X POST -H "Authorization: Bearer $CRON_SECRET" -H "Origin: http://localhos
 |---|---|
 | `npm test` | Unit: money, dates, matching, templates, draft verification, invoice checks, plan templates |
 | `npm run test:emulator` | Firestore/Storage security rules; task engine end-to-end (approval gate, dedupe, retries with idempotency, cancel, crash recovery, model outage) |
-| `npm run test:live` | Real Gemini calls: model IDs exist, schemas accepted, PDF extraction ignores embedded instructions |
+| `npm run test:live` | Real Gemini calls: model IDs exist, schemas accepted, PDF extraction ignores embedded instructions, PAID stamps detected |
+| `npm run test:e2e` | Chromium end-to-end on a running app (`next start -p 3300` + emulators): signup → onboarding → upload 6 synthetic invoices → statuses → drafts (stops before sending) → persistence → isolation → CSP violations |
 
 ## Layout
 
@@ -87,5 +88,25 @@ Vercel works too. Background steps then run through authenticated calls to `/api
 | `RESEND_API_KEY`, `EMAIL_FROM` | as above |
 
 Do **not** set `NEXT_PUBLIC_USE_EMULATORS` or `TASKS_QUEUE` on Vercel. Add the Vercel domain under Firebase Authentication → Authorized domains. Redeploy after changing variables.
+
+## Database security rules (required, any host)
+
+The browser reads data directly from Firestore, so the rules in this repo must be live on the project. Until they are, the app shows "Your data can't be loaded … security rules haven't been deployed".
+
+```bash
+npx firebase login
+npx firebase use opspilot-28504
+npx firebase deploy --only firestore:rules,firestore:indexes,storage
+```
+
+## Sending email (Resend)
+
+1. Resend dashboard → Domains → Add domain (a domain you own, e.g. `mail.yourdomain.com`). Resend shows the exact DNS records (SPF/MX, DKIM, optional DMARC) to add at your DNS provider; wait until it shows **Verified**.
+2. Set `EMAIL_FROM` to a plain address on that domain, e.g. `reminders@mail.yourdomain.com` (the sender name is added by the app). Gmail and other free-mail addresses are refused.
+3. Redeploy. The approval screen shows "Emails can't be sent yet" with the exact reason until this is correct; nothing can be approved for sending before then.
+
+## Security headers
+
+`proxy.ts` sends an enforced Content-Security-Policy on every page with a per-request nonce (`'strict-dynamic'`, no `unsafe-eval` in production). Documented exceptions are in `src/lib/csp.ts`. API routes return JSON; the document viewer route sets its own sandboxed CSP.
 
 See `docs/IMPLEMENTATION_PLAN.md` for the phased plan.

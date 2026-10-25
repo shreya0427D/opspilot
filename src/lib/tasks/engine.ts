@@ -352,7 +352,8 @@ export async function advance(ref: StepRef): Promise<void> {
 async function maybeFinalize(tRef: DocumentReference) {
   const db = adminDb();
   await db.runTransaction(async (tx) => {
-    const task = (await tx.get(tRef)).data() as Task;
+    const task = (await tx.get(tRef)).data() as Task | undefined;
+    if (!task) return; // deleted (e.g. account deletion) while a step was running
     if (TERMINAL_TASK_STATUSES.includes(task.status) || task.status === "awaiting_approval") return;
     const steps = (await tx.get(tRef.collection("steps"))).docs.map((d) => d.data() as Step);
     if (steps.some((s) => OPEN_STEP_STATUSES.includes(s.status))) return;

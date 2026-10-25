@@ -3,7 +3,7 @@
 import { ArrowLeftIcon, CheckIcon, XIcon } from "lucide-react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState, PageHeader } from "@/components/app/page-header";
 import { useAuth, useWsPath } from "@/components/providers/auth-provider";
@@ -41,18 +41,26 @@ export default function ApprovalPage() {
   const [edits, setEdits] = useState<Record<string, Decision>>({});
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [sender, setSender] = useState<{ ok: boolean; reason?: string } | null>(null);
+
+  useEffect(() => {
+    api<{ ok: boolean; reason?: string }>("/api/email-status")
+      .then(setSender)
+      .catch(() => setSender({ ok: false, reason: "Couldn't check whether email sending is set up" }));
+  }, []);
 
   const decisions = useMemo(() => {
     const out: Record<string, Decision> = {};
     for (const it of items.data) {
       out[it.id] = edits[it.id] ?? {
-        decision: it.isSample || !it.verification.ok ? "reject" : "approve",
+        // Nothing is pre-approved unless it could actually be sent.
+        decision: it.isSample || !it.verification.ok || sender?.ok !== true ? "reject" : "approve",
         subject: it.subject,
         body: it.body,
       };
     }
     return out;
-  }, [items.data, edits]);
+  }, [items.data, edits, sender]);
 
   if (approval.loading || items.loading) return <Skeleton className="mx-auto h-64 max-w-3xl" />;
   if (approval.error) return <ErrorState message={approval.error} />;
@@ -106,6 +114,14 @@ export default function ApprovalPage() {
         }
       />
 
+      {pending && sender && !sender.ok && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            <span className="font-medium">Emails can&apos;t be sent yet.</span> {sender.reason} You can still reject drafts.
+          </AlertDescription>
+        </Alert>
+      )}
+
       {approval.data.skipped?.length > 0 && (
         <Alert>
           <AlertDescription>
@@ -125,13 +141,13 @@ export default function ApprovalPage() {
               <StatusBadge status="ai_draft" />
               <StatusBadge status={it.stage} />
               {it.isSample && <StatusBadge status="sample" />}
-              {!pending && <StatusBadge status={it.status} className="ml-auto" />}
+              {!pending && <StatusBadge status={it.status === "sent" && it.providerStatus ? it.providerStatus : it.status} className="ml-auto" />}
               {pending && (
                 <div className="ml-auto flex gap-1" role="group" aria-label="Decision">
                   <Button
                     size="sm"
                     variant={d.decision === "approve" ? "default" : "outline"}
-                    disabled={blocked}
+                    disabled={blocked || sender?.ok === false}
                     onClick={() => set(it.id, { decision: "approve" })}
                     aria-pressed={d.decision === "approve"}
                   >

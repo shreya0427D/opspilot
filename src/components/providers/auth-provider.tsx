@@ -19,6 +19,7 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | null>(null);
+const DATA_TIMEOUT_MS = 15_000;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
@@ -43,17 +44,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     const { db } = firebase();
-    return onSnapshot(
+    // Firestore doesn't report a stalled connection; it just never answers. Don't wait forever.
+    const watchdog = setTimeout(() => setDataError((e) => e ?? "unreachable"), DATA_TIMEOUT_MS);
+    const unsubscribe = onSnapshot(
       doc(db, `users/${user.uid}`),
       (snap) => {
+        clearTimeout(watchdog);
         setDataError(null);
         setWorkspaceId((snap.get("defaultWorkspaceId") as string) ?? null);
       },
       (err) => {
+        clearTimeout(watchdog);
         setWorkspaceId(null);
         setDataError(err.code === "permission-denied" ? "permission-denied" : err.message);
       },
     );
+    return () => {
+      clearTimeout(watchdog);
+      unsubscribe();
+    };
   }, [user]);
 
   useEffect(() => {

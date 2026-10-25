@@ -1,6 +1,7 @@
 import "server-only";
 import { createPartFromBase64 } from "@google/genai";
 import { z } from "zod";
+import { PAYMENT_MARKINGS } from "@/lib/domain/invoice-checks";
 import { generateStructured, untrusted } from "./gemini";
 import { ROUTES } from "./models";
 
@@ -45,14 +46,20 @@ export async function classifyCommand(workspaceId: string, command: string) {
 const extractedInvoiceSchema = z.object({
   invoiceNumber: z.string().nullable(),
   clientName: z.string().nullable().describe("The billed customer (Bill To), not the issuer"),
-  clientEmail: z.string().nullable(),
+  clientEmail: z.string().nullable().describe("The billed customer's email exactly as printed; null if not printed. Never guess."),
   issueDate: z.string().nullable().describe("YYYY-MM-DD"),
   dueDate: z.string().nullable().describe("YYYY-MM-DD"),
   currency: z.string().nullable().describe("ISO 4217 code, e.g. USD, INR, EUR"),
   subtotal: z.string().nullable().describe("Exactly as printed, digits only with . decimal"),
   tax: z.string().nullable(),
   total: z.string().nullable(),
-  amountPaid: z.string().nullable(),
+  amountPaid: z.string().nullable().describe("Amount already paid, if a line for it is printed"),
+  balanceDue: z.string().nullable().describe("Remaining amount due/balance due, if printed separately from the total"),
+  paymentMarking: z
+    .enum(PAYMENT_MARKINGS)
+    .describe("A visible payment marking: a PAID / FULLY PAID stamp or status => paid; PARTIALLY PAID => partially_paid; UNPAID / DUE => unpaid; no marking => none"),
+  paymentMarkingText: z.string().nullable().describe("The marking's exact text as printed, e.g. 'PAID'"),
+  paymentMarkingPage: z.number().int().positive().nullable().describe("1-based page where the marking appears"),
   lineItemAmounts: z.array(z.string()).describe("Line totals as printed"),
   sourcePages: z.array(z.number().int().positive()).describe("1-based pages where the fields appear"),
 });
@@ -73,6 +80,7 @@ export async function extractInvoice(workspaceId: string, file: { base64: string
       "Copy values exactly as printed; do not compute, infer or correct numbers.",
       "Convert dates to YYYY-MM-DD only when unambiguous; otherwise return null.",
       "If a due date is not printed, return null (do not derive it from payment terms).",
+      "Report any visible payment marking (stamps, watermarks, status labels) exactly; do not infer payment from anything else.",
       "Use null for anything missing or unreadable. If the document is not an invoice, set isInvoice=false.",
       "If it contains several invoices, set multipleInvoices=true and extract only the first.",
     ].join("\n"),

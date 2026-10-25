@@ -22,7 +22,8 @@ export interface ModelConfig {
 export const MODELS: Record<ModelTier, ModelConfig> = {
   lite: { id: "gemini-3.5-flash-lite", fallbackIds: [], inputPerM: 0.3, outputPerM: 2.5, timeoutMs: 30_000 },
   standard: {
-    id: "gemini-3.6-flash",
+    // Override without a code deploy (e.g. during an outage or quota exhaustion).
+    id: process.env.GEMINI_MODEL_STANDARD || "gemini-3.6-flash",
     fallbackIds: ["gemini-3.8-flash"],
     inputPerM: 1.5,
     outputPerM: 7.5,

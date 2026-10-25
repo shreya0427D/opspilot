@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { AuthCard } from "@/components/auth/auth-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/hooks/use-hydrated";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, errorMessage } from "@/lib/client/api";
@@ -13,6 +14,7 @@ export function OnboardingForm({ email }: { email: string }) {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const hydrated = useHydrated();
   const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone, []);
   const zones = useMemo(() => Intl.supportedValuesOf("timeZone"), []);
 
@@ -74,7 +76,7 @@ export function OnboardingForm({ email }: { email: string }) {
           </select>
           <p className="text-xs text-muted-foreground">Used to decide when an invoice becomes overdue.</p>
         </div>
-        <Button type="submit" className="w-full" disabled={busy}>
+        <Button type="submit" className="w-full" disabled={busy || !hydrated}>
           {busy ? "Creating…" : "Create workspace"}
         </Button>
       </form>

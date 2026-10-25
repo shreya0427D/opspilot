@@ -1,9 +1,10 @@
 import "server-only";
+import { createHash } from "node:crypto";
 import { FieldValue } from "firebase-admin/firestore";
 import { z } from "zod";
 import { extractInvoice } from "@/lib/ai/prompts";
 import { checkExtractedInvoice } from "@/lib/domain/invoice-checks";
-import { matchClient } from "@/lib/domain/matching";
+import { normalizeName, resolveClient } from "@/lib/domain/matching";
 import type { DocumentRecord, Invoice } from "@/lib/domain/types";
 import { adminBucket, adminDb } from "@/lib/firebase/admin";
 import { AppError } from "@/lib/server/errors";
@@ -43,49 +44,89 @@ registerTool({
 
     const raw = data.invoice;
     const clients = await loadClients(ctx.workspaceId);
-    const match = matchClient({ name: raw.clientName, email: raw.clientEmail }, clients);
-    const { checks, normalized, autoAccept } = checkExtractedInvoice(raw, match.kind === "matched");
+    const resolution = resolveClient({ name: raw.clientName, email: raw.clientEmail }, clients);
+    // Provisionally treat a creatable new customer as resolved; it is only created below if
+    // every other check passes, otherwise it is offered to the reviewer instead.
+    const { checks, normalized } = checkExtractedInvoice(raw, {
+      ok: resolution.kind !== "review",
+      message: resolution.message,
+    });
 
     if (data.multipleInvoices) checks.push({ id: "multiple", ok: false, message: "File contains several invoices; only the first was read" });
     if (normalized.number) {
-      const dupes = await col.invoices.where("number", "==", normalized.number).limit(1).get();
-      if (!dupes.empty && dupes.docs[0].id !== `inv_${documentId}`) {
+      const dupes = await col.invoices.where("number", "==", normalized.number).limit(2).get();
+      if (dupes.docs.some((d) => d.id !== `inv_${documentId}`)) {
         checks.push({ id: "duplicate", ok: false, message: `Invoice number ${normalized.number} already exists` });
       }
     }
-    const accepted = autoAccept && checks.every((c) => c.ok);
+    const accepted = checks.every((c) => c.ok);
+    if (resolution.kind === "create" && !accepted) {
+      const clientCheck = checks.find((c) => c.id === "client")!;
+      clientCheck.ok = false;
+      clientCheck.message = `New customer “${resolution.name}” (${resolution.email}) — not created automatically because the invoice needs review`;
+    }
     const paid = normalized.totalMinor !== null && normalized.paidMinor >= normalized.totalMinor;
 
-    // Deterministic ID so a retried step updates rather than duplicates.
+    // Deterministic IDs so a retried step updates rather than duplicates.
     const invoiceId = `inv_${documentId}`;
-    const invoice: Omit<Invoice, "createdAt" | "updatedAt"> = {
-      number: normalized.number,
-      clientId: match.kind === "matched" ? match.clientId : null,
-      clientNameRaw: raw.clientName,
-      issueDate: normalized.issueDate,
-      dueDate: normalized.dueDate,
-      currency: normalized.currency,
-      totalMinor: normalized.totalMinor,
-      paidMinor: normalized.paidMinor,
-      status: paid ? "paid" : normalized.paidMinor > 0 ? "partially_paid" : "open",
-      reviewStatus: accepted ? "auto_accepted" : "needs_review",
-      checks,
-      source: "extracted",
-      sourceDocumentId: documentId,
-      sourcePages: raw.sourcePages,
-      reminderStage: null,
-      lastRemindedAt: null,
-      isSample: false,
-    };
-    await adminDb().runTransaction(async (tx) => {
-      tx.set(col.invoices.doc(invoiceId), { ...invoice, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
+    const invoiceRef = col.invoices.doc(invoiceId);
+
+    const clientId = await adminDb().runTransaction(async (tx) => {
+      let linked: string | null = resolution.kind === "matched" ? resolution.clientId : null;
+      let createRef: FirebaseFirestore.DocumentReference | null = null;
+      if (resolution.kind === "create" && accepted) {
+        // Re-check inside the transaction: another extraction may have just created this client.
+        const existing = await tx.get(col.clients.where("emails", "array-contains", resolution.email).limit(1));
+        const ref = col.clients.doc(`cl_${createHash("sha256").update(resolution.email).digest("hex").slice(0, 24)}`);
+        if (!existing.empty) linked = existing.docs[0].id;
+        else if ((await tx.get(ref)).exists) linked = ref.id; // never overwrite an existing client
+        else {
+          createRef = ref;
+          linked = ref.id;
+        }
+      }
+      const invoice: Omit<Invoice, "createdAt" | "updatedAt"> = {
+        number: normalized.number,
+        clientId: linked,
+        clientNameRaw: raw.clientName,
+        clientEmailRaw: raw.clientEmail?.trim() || null,
+        issueDate: normalized.issueDate,
+        dueDate: normalized.dueDate,
+        currency: normalized.currency,
+        totalMinor: normalized.totalMinor,
+        paidMinor: normalized.paidMinor,
+        paymentEvidence: normalized.paymentEvidence,
+        status: paid ? "paid" : normalized.paidMinor > 0 ? "partially_paid" : "open",
+        reviewStatus: accepted ? "auto_accepted" : "needs_review",
+        checks,
+        source: "extracted",
+        sourceDocumentId: documentId,
+        sourcePages: raw.sourcePages,
+        reminderStage: null,
+        lastRemindedAt: null,
+        isSample: false,
+      };
+      if (createRef && resolution.kind === "create") {
+        tx.set(createRef, {
+          name: resolution.name,
+          normalizedName: normalizeName(resolution.name),
+          emails: [resolution.email],
+          source: "extracted",
+          isSample: false,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+        await audit(ctx.workspaceId, "system", "client.created_from_invoice", `clients/${createRef.id}`, { documentId }, tx);
+      }
+      tx.set(invoiceRef, { ...invoice, createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp() });
       tx.update(docRef, { status: "processed", invoiceIds: [invoiceId], error: FieldValue.delete() });
       await audit(ctx.workspaceId, "system", "invoice.extracted", `invoices/${invoiceId}`, { documentId, reviewStatus: invoice.reviewStatus }, tx);
+      return linked;
     });
 
     const failedChecks = checks.filter((c) => !c.ok).map((c) => c.message);
     return {
-      output: { documentId, invoiceId, outcome: invoice.reviewStatus, number: normalized.number, fileName: record.fileName, failedChecks },
+      output: { documentId, invoiceId, clientId, outcome: accepted ? "auto_accepted" : "needs_review", number: normalized.number, fileName: record.fileName, failedChecks },
       costMicros,
       verification: accepted ? "pass" : "needs_review",
     };

@@ -33,7 +33,10 @@ export default function DocumentsPage() {
   const [dragging, setDragging] = useState(false);
 
   async function upload(files: File[]) {
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      toast.error("Your workspace is still loading. Try again in a moment.");
+      return;
+    }
     if (files.length > MAX_FILES) return toast.error(`Upload at most ${MAX_FILES} files at a time`);
     const valid = files.filter((f) => ACCEPT.includes(f.type) && f.size > 0 && f.size <= MAX_BYTES);
     const skipped = files.length - valid.length;
@@ -111,10 +114,11 @@ export default function DocumentsPage() {
           multiple
           accept={ACCEPT.join(",")}
           className="sr-only"
+          disabled={!workspaceId}
           onChange={(e) => e.target.files && upload(Array.from(e.target.files))}
         />
-        <Button className="mt-4" onClick={() => input.current?.click()} disabled={progress !== null}>
-          Choose files
+        <Button className="mt-4" onClick={() => input.current?.click()} disabled={progress !== null || !workspaceId}>
+          {workspaceId ? "Choose files" : "Loading…"}
         </Button>
         {progress !== null && (
           <div className="mt-4 w-full max-w-xs" aria-live="polite">

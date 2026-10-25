@@ -1,8 +1,10 @@
-import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
+import { NextResponse, type NextRequest } from "next/server";
 
 // Deployment self-check. Loads each server module in isolation so a module that crashes at import
 // time (missing traced file, bad env) is reported by name instead of an empty 500 on every route.
-// Reports only whether env vars are present, never their values.
+// Reports only whether env vars are present, never their values. Anonymous callers only get the
+// overall result; details require `Authorization: Bearer <CRON_SECRET>`.
 export const dynamic = "force-dynamic";
 
 const MODULES: Record<string, () => Promise<unknown>> = {
@@ -31,7 +33,13 @@ const ENV_KEYS = [
   "TASKS_QUEUE",
 ];
 
-export async function GET() {
+function authorized(req: NextRequest) {
+  const secret = process.env.CRON_SECRET;
+  const given = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
+  return !!secret && given.length === secret.length && timingSafeEqual(Buffer.from(given), Buffer.from(secret));
+}
+
+export async function GET(req: NextRequest) {
   const modules: Record<string, string> = {};
   for (const [name, load] of Object.entries(MODULES)) {
     try {
@@ -52,9 +60,15 @@ export async function GET() {
   }
 
   const present = Object.fromEntries(ENV_KEYS.map((k) => [k, Boolean(process.env[k])]));
+  let email = "ok";
+  if (envCheck === "ok") {
+    const { emailConfig } = await import("@/lib/server/email");
+    const c = emailConfig();
+    email = c.ok ? "ok" : `NOT READY: ${c.reason}`;
+  }
   const healthy = Object.values(modules).every((v) => v === "ok") && envCheck === "ok";
-  return NextResponse.json(
-    { healthy, node: process.version, modules, envCheck, envPresent: present, emulators: process.env.NEXT_PUBLIC_USE_EMULATORS === "true" },
-    { status: healthy ? 200 : 500, headers: { "Cache-Control": "no-store" } },
-  );
+  const body = authorized(req)
+    ? { healthy, node: process.version, modules, envCheck, email, envPresent: present, emulators: process.env.NEXT_PUBLIC_USE_EMULATORS === "true" }
+    : { healthy };
+  return NextResponse.json(body, { status: healthy ? 200 : 500, headers: { "Cache-Control": "no-store" } });
 }

@@ -2,7 +2,7 @@
 
 import { getApp, getApps, initializeApp, type FirebaseApp } from "firebase/app";
 import { connectAuthEmulator, getAuth, type Auth } from "firebase/auth";
-import { connectFirestoreEmulator, getFirestore, type Firestore } from "firebase/firestore";
+import { connectFirestoreEmulator, initializeFirestore, type Firestore } from "firebase/firestore";
 import { connectStorageEmulator, getStorage, type FirebaseStorage } from "firebase/storage";
 
 const useEmulators = process.env.NEXT_PUBLIC_USE_EMULATORS === "true";
@@ -25,7 +25,9 @@ export function firebase() {
   if (services) return services;
   const app = getApps().length ? getApp() : initializeApp(config);
   const auth = getAuth(app);
-  const db = getFirestore(app);
+  // Long-polling instead of the streaming transport: some networks, proxies and antivirus tools
+  // buffer the stream, which leaves listeners silently waiting forever ("could not reach backend").
+  const db = initializeFirestore(app, { experimentalForceLongPolling: true });
   const storage = getStorage(app);
   if (useEmulators) {
     connectAuthEmulator(auth, "http://127.0.0.1:9099", { disableWarnings: true });

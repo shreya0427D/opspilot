@@ -145,8 +145,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               <p className="mt-1 text-muted-foreground">
                 {dataError === "permission-denied"
                   ? "The database refused access. This usually means the Firestore security rules haven't been deployed to this Firebase project yet (see README → Deploying)."
-                  : dataError}
+                  : dataError === "unreachable"
+                    ? "The database isn't responding. Check your internet connection; some VPNs, proxies or antivirus tools block it."
+                    : dataError}
               </p>
+              <Button size="sm" variant="outline" className="mt-2" onClick={() => window.location.reload()}>
+                Try again
+              </Button>
             </div>
           )}
           {children}

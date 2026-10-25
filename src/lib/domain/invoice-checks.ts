@@ -15,8 +15,25 @@ export interface ExtractedInvoice {
   tax: string | null;
   total: string | null;
   amountPaid: string | null;
+  /** Remaining amount printed on the invoice ("Balance due", "Amount due"), if any. */
+  balanceDue?: string | null;
+  /** A visible payment marking such as a PAID stamp. The model reports it; code decides. */
+  paymentMarking?: PaymentMarking;
+  paymentMarkingText?: string | null;
+  paymentMarkingPage?: number | null;
   lineItemAmounts: string[];
   sourcePages: number[];
+}
+
+export const PAYMENT_MARKINGS = ["paid", "partially_paid", "unpaid", "none"] as const;
+export type PaymentMarking = (typeof PAYMENT_MARKINGS)[number];
+
+/** Evidence kept on the invoice so a reviewer can see why a payment status was chosen. */
+export interface PaymentEvidence {
+  marking: PaymentMarking;
+  text: string | null;
+  page: number | null;
+  balanceDueMinor: number | null;
 }
 
 export interface NormalizedInvoice {
@@ -26,11 +43,12 @@ export interface NormalizedInvoice {
   currency: string | null;
   totalMinor: number | null;
   paidMinor: number;
+  paymentEvidence: PaymentEvidence;
 }
 
 export function checkExtractedInvoice(
   raw: ExtractedInvoice,
-  clientMatched: boolean,
+  client: boolean | { ok: boolean; message: string },
 ): { checks: InvoiceCheck[]; normalized: NormalizedInvoice; autoAccept: boolean } {
   const checks: InvoiceCheck[] = [];
   const add = (id: string, ok: boolean, message: string) => checks.push({ id, ok, message });
@@ -76,11 +94,11 @@ export function checkExtractedInvoice(
     }
   }
 
-  const paid = raw.amountPaid ? toMinor(raw.amountPaid) : 0;
-  const paidOk = paid !== null && (total === null || paid <= total);
-  add("paid", paidOk, paidOk ? "Paid amount consistent" : "Paid amount unreadable or exceeds total");
+  const payment = resolvePayment(raw, total, toMinor);
+  add("payment_status", payment.ok, payment.message);
 
-  add("client", clientMatched, clientMatched ? "Matched to a saved client" : "Not matched to a saved client");
+  const c = typeof client === "boolean" ? { ok: client, message: client ? "Matched to a saved client" : "Not matched to a saved client" } : client;
+  add("client", c.ok, c.message);
 
   return {
     checks,
@@ -90,8 +108,67 @@ export function checkExtractedInvoice(
       dueDate: dueOk ? raw.dueDate : null,
       currency: currencyOk ? currency : null,
       totalMinor: total,
-      paidMinor: paidOk ? (paid ?? 0) : 0,
+      paidMinor: payment.paidMinor,
+      paymentEvidence: payment.evidence,
     },
     autoAccept: checks.every((c) => c.ok),
   };
+}
+
+/**
+ * Decides how much of the invoice is paid from the printed evidence. A PAID stamp counts only
+ * when nothing on the invoice contradicts it; any contradiction (a balance still due, an amount
+ * paid below the total) fails the check so the invoice goes to review instead of reminders.
+ */
+export function resolvePayment(
+  raw: ExtractedInvoice,
+  total: number | null,
+  toMinor: (v: string | null) => number | null,
+): { ok: boolean; message: string; paidMinor: number; evidence: PaymentEvidence } {
+  const marking: PaymentMarking = raw.paymentMarking ?? "none";
+  const paidPrinted = raw.amountPaid ? toMinor(raw.amountPaid) : null;
+  const balance = raw.balanceDue ? toMinor(raw.balanceDue) : null;
+  const evidence: PaymentEvidence = {
+    marking,
+    text: raw.paymentMarkingText?.slice(0, 120) ?? null,
+    page: raw.paymentMarkingPage ?? null,
+    balanceDueMinor: balance,
+  };
+  const where = evidence.page ? ` (page ${evidence.page})` : "";
+  const fail = (message: string) => ({ ok: false, message, paidMinor: 0, evidence });
+  const pass = (message: string, paidMinor: number) => ({ ok: true, message, paidMinor, evidence });
+
+  if ((raw.amountPaid && paidPrinted === null) || (raw.balanceDue && balance === null)) {
+    return fail("Payment amounts on the invoice are unreadable");
+  }
+  if (total === null) return fail("Payment status can't be checked without a readable total");
+  if (paidPrinted !== null && paidPrinted > total) return fail("Amount paid exceeds the total");
+  if (balance !== null && balance > total) return fail("Balance due exceeds the total");
+  if (paidPrinted !== null && balance !== null && paidPrinted + balance !== total) {
+    return fail("Amount paid and balance due don't add up to the total");
+  }
+
+  // What the printed numbers say, independent of any stamp.
+  const paidFromNumbers = paidPrinted ?? (balance !== null ? total - balance : null);
+
+  switch (marking) {
+    case "paid":
+      if (paidFromNumbers !== null && paidFromNumbers < total) {
+        return fail(`Marked PAID${where} but the invoice still shows an amount due`);
+      }
+      return pass(`Marked PAID${where}`, total);
+    case "partially_paid":
+      if (paidFromNumbers === null) return fail(`Marked partially paid${where} but the paid amount isn't shown`);
+      if (paidFromNumbers <= 0 || paidFromNumbers >= total) {
+        return fail(`Marked partially paid${where} but the amounts say otherwise`);
+      }
+      return pass(`Partially paid${where}`, paidFromNumbers);
+    case "unpaid":
+      if (paidFromNumbers !== null && paidFromNumbers >= total) {
+        return fail(`Marked unpaid${where} but the amounts show it fully paid`);
+      }
+      return pass(`Marked unpaid${where}`, paidFromNumbers ?? 0);
+    case "none":
+      return pass(paidFromNumbers ? "Payment amounts consistent" : "No payment shown", paidFromNumbers ?? 0);
+  }
 }

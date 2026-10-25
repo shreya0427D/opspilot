@@ -30,6 +30,26 @@ export function InvoiceForm({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [clientId, setClientId] = useState(invoice?.clientId ?? "");
+  const [creatingClient, setCreatingClient] = useState(false);
+  const suggestedEmail = invoice?.clientEmailRaw && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(invoice.clientEmailRaw) ? invoice.clientEmailRaw : null;
+  const canSuggestClient = !!invoice && !invoice.clientId && !!invoice.clientNameRaw && !!suggestedEmail;
+
+  // Creates the client exactly as printed on the invoice; the server rejects duplicates.
+  async function createSuggestedClient() {
+    if (!invoice?.clientNameRaw || !suggestedEmail) return;
+    setCreatingClient(true);
+    setError(null);
+    try {
+      const { id } = await api<{ id: string }>("/api/clients", { body: { name: invoice.clientNameRaw, emails: [suggestedEmail] } });
+      setClientId(id);
+      toast.success(`Client “${invoice.clientNameRaw}” added`);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setCreatingClient(false);
+    }
+  }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -80,7 +100,8 @@ export function InvoiceForm({
           id="clientId"
           name="clientId"
           required
-          defaultValue={invoice?.clientId ?? ""}
+          value={clientId}
+          onChange={(e) => setClientId(e.target.value)}
           className="h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm"
         >
           <option value="" disabled>
@@ -94,7 +115,14 @@ export function InvoiceForm({
           ))}
         </select>
         {invoice?.clientNameRaw && !invoice.clientId && (
-          <p className="text-xs text-muted-foreground">Document says: “{invoice.clientNameRaw}”</p>
+          <p className="text-xs text-muted-foreground">
+            Document says: “{invoice.clientNameRaw}”{invoice.clientEmailRaw ? ` · ${invoice.clientEmailRaw}` : " · no email printed"}
+          </p>
+        )}
+        {canSuggestClient && !clientId && (
+          <Button type="button" size="sm" variant="outline" disabled={creatingClient} onClick={createSuggestedClient}>
+            {creatingClient ? "Adding…" : `Add “${invoice!.clientNameRaw}” as a client`}
+          </Button>
         )}
       </div>
       <div className="space-y-1.5">

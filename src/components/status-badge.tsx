@@ -45,7 +45,12 @@ const LABELS: Record<string, [string, Tone]> = {
   // approvals / emails
   approved: ["Approved", "info"],
   sending: ["Sending", "info"],
-  sent: ["Sent", "success"],
+  sent: ["Accepted by provider", "info"],
+  delivered: ["Delivered", "success"],
+  delivery_delayed: ["Delivery delayed", "warning"],
+  bounced: ["Bounced", "danger"],
+  complained: ["Marked as spam", "danger"],
+  suppressed: ["Suppressed by provider", "danger"],
   unknown: ["Outcome unknown", "danger"],
   // payments
   suggested: ["Suggested match", "warning"],

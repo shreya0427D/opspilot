@@ -8,6 +8,7 @@ import type { Approval, ApprovalItem, Client, Invoice, Task, Workspace } from "@
 import { adminDb } from "@/lib/firebase/admin";
 import { appendStepsAndResume, requestCancel } from "@/lib/tasks/engine";
 import { sendPlan } from "@/lib/tasks/plans";
+import { emailConfig } from "../email";
 import { badRequest, conflict, notFound } from "../errors";
 import type { WorkspaceContext } from "../session";
 import { audit, ws } from "../workspace-data";
@@ -26,6 +27,9 @@ export async function decideApproval(
   const col = ws(ctx.workspaceId);
   const aRef = col.approvals.doc(approvalId);
   const workspace = (await col.root.get()).data() as Workspace;
+  // Don't let anyone approve emails that can't be sent; say exactly what is missing instead.
+  const sender = emailConfig();
+  if (!sender.ok && input.items.some((i) => i.decision === "approve")) throw badRequest(sender.reason);
 
   const outcome = await db.runTransaction(async (tx) => {
     const aSnap = await tx.get(aRef);

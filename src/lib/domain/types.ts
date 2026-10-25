@@ -1,3 +1,5 @@
+import type { PaymentEvidence } from "./invoice-checks";
+
 // Firestore document shapes. Paths are all scoped under workspaces/{workspaceId}/...
 // Timestamps are Firestore Timestamps on the server and { seconds, nanoseconds } on the client.
 
@@ -52,6 +54,10 @@ export interface Invoice {
   number: string | null;
   clientId: string | null;
   clientNameRaw?: string | null;
+  /** Customer email exactly as extracted; kept even when no client could be linked. */
+  clientEmailRaw?: string | null;
+  /** Why the payment status was chosen (e.g. a PAID stamp on page 1). Extracted invoices only. */
+  paymentEvidence?: PaymentEvidence | null;
   issueDate: string | null; // YYYY-MM-DD
   dueDate: string | null; // YYYY-MM-DD
   currency: string | null; // ISO 4217
@@ -248,6 +254,8 @@ export interface ApprovalItem {
   status: ApprovalItemStatus;
   sendKey: string;
   providerMessageId: string | null;
+  /** Last delivery event reported by the email provider (e.g. "delivered", "bounced"). */
+  providerStatus?: string | null;
   error: string | null;
   decidedAt: TimestampLike | null;
   sentAt: TimestampLike | null;
