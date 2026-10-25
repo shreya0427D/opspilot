@@ -83,7 +83,15 @@ export const createTaskInput = z.object({
 
 export const finalizeUploadInput = z.object({
   documentId: id,
-  fileUrl: z.url().max(1024).refine((u) => new URL(u).hostname.endsWith(".edgestore.dev"), "Unexpected file location"),
+  // EdgeStore returns files on a per-project host (p-<project>.esfiles.dev). Ownership is then
+  // proven server-side: the file is looked up through EdgeStore and its path must match.
+  fileUrl: z
+    .url()
+    .max(1024)
+    .refine((u) => {
+      const { protocol, hostname } = new URL(u);
+      return protocol === "https:" && (hostname.endsWith(".esfiles.dev") || hostname.endsWith(".edgestore.dev"));
+    }, "Unexpected file location"),
   fileName: z.string().min(1).max(255),
 });
 
