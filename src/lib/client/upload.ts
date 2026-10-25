@@ -16,15 +16,19 @@ type EdgeStore = ReturnType<typeof useEdgeStore>["edgestore"];
 function describe(err: unknown, stalled: boolean): UploadError {
   if (stalled) return new UploadError("stalled", "The upload didn't go through. Check your connection and try again.");
   const e = err as { name?: string; message?: string; status?: number };
-  const text = `${e?.name ?? ""} ${e?.message ?? ""}`;
-  if (e?.name === "AbortError" || /abort/i.test(text)) return new UploadError("canceled", "Upload canceled.");
-  if (/unauthori|forbidden|401|403|sign in/i.test(text)) return new UploadError("unauthorized", "Upload was refused. Sign out and back in, then try again.");
-  if (/size|too large|maxSize/i.test(text)) return new UploadError("too_large", "File is larger than 10 MB.");
-  if (/type|accept|mime/i.test(text)) return new UploadError("type", "Only PDF, PNG, JPG or WEBP files are supported.");
-  if (/EDGESTORE|configur|access key|secret/i.test(text)) return new UploadError("not_configured", "File storage isn't configured on the server yet.");
-  if (/quota|limit/i.test(text)) return new UploadError("quota", "Storage quota reached for this project.");
-  if (/network|fetch|Failed to fetch/i.test(text)) return new UploadError("network", "Network error during upload. Try again.");
-  return new UploadError("unknown", "Upload failed. Try again.");
+  // Match the message only: every SDK error is named "EdgeStoreClientError", and a browser
+  // "TypeError: Failed to fetch" would otherwise look like a file-type error.
+  const message = e?.message ?? "";
+  if (e?.name === "AbortError" || /abort/i.test(message)) return new UploadError("canceled", "Upload canceled.");
+  if (/unauthori|forbidden|401|403|sign in/i.test(message)) return new UploadError("unauthorized", "Upload was refused. Sign out and back in, then try again.");
+  if (/size|too large|maxSize/i.test(message)) return new UploadError("too_large", "File is larger than 10 MB.");
+  if (/file type|accept|mime/i.test(message)) return new UploadError("type", "Only PDF, PNG, JPG or WEBP files are supported.");
+  // Only our server's own 503 means the storage keys are missing.
+  if (/isn't configured on the server|storage_not_configured/i.test(message)) return new UploadError("not_configured", "File storage isn't configured on the server yet.");
+  if (/Failed to parse response/i.test(message)) return new UploadError("server", "The upload service returned an unexpected response. Try again.");
+  if (/quota|limit/i.test(message)) return new UploadError("quota", "Storage quota reached for this project.");
+  if (/Error uploading file|network|Failed to fetch/i.test(message)) return new UploadError("network", "The file couldn't be sent to storage. Check your connection and try again.");
+  return new UploadError("unknown", message ? `Upload failed: ${message.slice(0, 160)}` : "Upload failed. Try again.");
 }
 
 /**

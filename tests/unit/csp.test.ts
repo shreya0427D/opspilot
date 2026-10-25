@@ -27,6 +27,7 @@ describe("content security policy", () => {
     // The only wildcard allowed is EdgeStore's own subdomains (upload hosts are issued per request).
     expect(connect.replace("https://*.edgestore.dev", "")).not.toMatch(/\s\*|https:\/\/\*/);
     expect(connect).toContain("https://*.edgestore.dev");
+    expect(connect).toContain("https://edge-store.s3.us-east-1.amazonaws.com");
     expect(directive(csp, "frame-src")).toContain("https://opspilot-28504.firebaseapp.com");
   });
 

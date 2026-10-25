@@ -35,6 +35,8 @@ export function buildCsp(
       "https://www.googleapis.com",
       "https://apis.google.com",
       "https://*.edgestore.dev",
+      // The browser PUTs each file to a presigned URL on EdgeStore's S3 bucket.
+      "https://edge-store.s3.us-east-1.amazonaws.com",
       emulatorHosts,
     ]
       .filter(Boolean)
