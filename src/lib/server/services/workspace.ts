@@ -5,7 +5,9 @@ import type { createWorkspaceInput, templateInput, updateWorkspaceInput } from "
 import { DEFAULT_TEMPLATES } from "@/lib/domain/reminders";
 import { REMINDER_STAGES } from "@/lib/domain/types";
 import { adminAuth, adminBucket, adminDb } from "@/lib/firebase/admin";
+import type { DocumentRecord } from "@/lib/domain/types";
 import { conflict } from "../errors";
+import { deleteStoredFile } from "../file-storage";
 import { log } from "../log";
 import type { SessionUser, WorkspaceContext } from "../session";
 import { audit, ws } from "../workspace-data";
@@ -50,11 +52,36 @@ export async function saveTemplate(ctx: WorkspaceContext, input: z.infer<typeof 
  * Permanently deletes the user's workspace (all subcollections), uploaded files, user record
  * and Auth account. Caller must have verified a recent sign-in.
  */
+/**
+ * Removes the workspace's uploaded files before its records go. New uploads live in EdgeStore
+ * (deleted per document); older ones may sit in Firebase Storage, which this project may never
+ * have provisioned — a missing bucket means there is nothing to delete, not a failure.
+ */
+async function deleteWorkspaceFiles(workspaceId: string) {
+  const docs = await ws(workspaceId).documents.get();
+  await Promise.all(
+    docs.docs.map((d) =>
+      deleteStoredFile(d.data() as DocumentRecord).catch((err) => log.warn("Couldn't delete an uploaded file", { workspaceId, documentId: d.id, err: String(err) })),
+    ),
+  );
+  try {
+    await adminBucket().deleteFiles({ prefix: `workspaces/${workspaceId}/` });
+  } catch (err) {
+    const status = (err as { code?: number }).code;
+    const text = String((err as Error)?.message ?? err);
+    if (status === 404 || /bucket does not exist|not specified or invalid/i.test(text)) {
+      log.info("No Firebase Storage bucket to clean up", { workspaceId });
+    } else {
+      throw err;
+    }
+  }
+}
+
 export async function deleteAccount(ctx: WorkspaceContext | SessionUser) {
   const db = adminDb();
   const workspaceId = "workspaceId" in ctx ? ctx.workspaceId : null;
   if (workspaceId) {
-    await adminBucket().deleteFiles({ prefix: `workspaces/${workspaceId}/` });
+    await deleteWorkspaceFiles(workspaceId);
     await db.recursiveDelete(db.doc(`workspaces/${workspaceId}`));
   }
   await db.doc(`users/${ctx.uid}`).delete();

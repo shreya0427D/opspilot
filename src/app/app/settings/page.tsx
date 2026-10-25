@@ -223,6 +223,31 @@ function SampleCard() {
   );
 }
 
+/** Turns re-authentication and deletion failures into a message the user can act on. */
+function deleteErrorMessage(err: unknown) {
+  const code = (err as { code?: string })?.code ?? "";
+  switch (code) {
+    case "auth/wrong-password":
+    case "auth/invalid-credential":
+    case "auth/invalid-login-credentials":
+      return "That password is incorrect. Enter your current password to confirm.";
+    case "auth/missing-password":
+      return "Enter your password to confirm.";
+    case "auth/popup-closed-by-user":
+    case "auth/cancelled-popup-request":
+      return "The Google sign-in window was closed before you confirmed. Try again and finish signing in.";
+    case "auth/popup-blocked":
+      return "Your browser blocked the Google sign-in window. Allow pop-ups for this site and try again.";
+    case "auth/user-mismatch":
+      return "That Google account isn't the one you're signed in with. Choose the same account.";
+    case "auth/too-many-requests":
+      return "Too many attempts. Wait a few minutes and try again.";
+    case "auth/network-request-failed":
+      return "Network error while confirming your identity. Check your connection and try again.";
+  }
+  return errorMessage(err);
+}
+
 function DangerCard() {
   const router = useRouter();
   const { user } = useAuth();
@@ -243,7 +268,7 @@ function DangerCard() {
       await signOut(firebase().auth);
       router.replace("/");
     } catch (err) {
-      toast.error(errorMessage(err));
+      toast.error(deleteErrorMessage(err));
       setBusy(false);
     }
   }
