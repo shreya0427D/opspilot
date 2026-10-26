@@ -34,7 +34,7 @@ const ctx = { uid: "alice", email: "alice@ops.test", emailVerified: true, authTi
 const NORTHSTAR: ExtractedInvoice = {
   invoiceNumber: "OPS-QA-2026-001",
   clientName: "Northstar Design Studio",
-  clientEmail: "billing@northstar-demo.example",
+  clientEmail: "billing@northstar-demo.com",
   issueDate: "2026-09-01",
   dueDate: "2026-09-15",
   currency: "INR",
@@ -120,21 +120,21 @@ describe("invoices for customers that aren't saved yet", () => {
     const inv = await upload(WS, "d1", NORTHSTAR);
     const clients = await clientsIn(WS);
     expect(clients).toHaveLength(1);
-    expect(clients[0]).toMatchObject({ name: "Northstar Design Studio", emails: ["billing@northstar-demo.example"], source: "extracted" });
-    expect(inv).toMatchObject({ reviewStatus: "auto_accepted", clientId: clients[0].id, clientEmailRaw: "billing@northstar-demo.example" });
+    expect(clients[0]).toMatchObject({ name: "Northstar Design Studio", emails: ["billing@northstar-demo.com"], source: "extracted" });
+    expect(inv).toMatchObject({ reviewStatus: "auto_accepted", clientId: clients[0].id, clientEmailRaw: "billing@northstar-demo.com" });
 
     const task = await chase();
     expect(task.status).toBe("awaiting_approval");
     const items = (await db.collection(`workspaces/${WS}/approvals/${task.approvalId}/items`).get()).docs.map((d) => d.data() as ApprovalItem);
     expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ to: "billing@northstar-demo.example", amountDueMinor: 2360000 });
+    expect(items[0]).toMatchObject({ to: "billing@northstar-demo.com", amountDueMinor: 2360000 });
     expect(items[0].body).toContain("₹23,600.00");
     expect(items[0].body).toContain("OPS-QA-2026-001");
     expect(sendEmail).not.toHaveBeenCalled(); // drafting never sends
   });
 
   it("links to an existing client with the same email instead of creating another", async () => {
-    await db.doc(`workspaces/${WS}/clients/existing`).set({ name: "Northstar", normalizedName: "northstar", emails: ["billing@northstar-demo.example"], source: "manual", isSample: false });
+    await db.doc(`workspaces/${WS}/clients/existing`).set({ name: "Northstar", normalizedName: "northstar", emails: ["billing@northstar-demo.com"], source: "manual", isSample: false });
     const inv = await upload(WS, "d2", NORTHSTAR);
     expect(inv?.clientId).toBe("existing");
     expect(await clientsIn(WS)).toHaveLength(1);
@@ -152,7 +152,7 @@ describe("invoices for customers that aren't saved yet", () => {
   it("a similar name with a different email goes to review and creates nothing", async () => {
     await db.doc(`workspaces/${WS}/clients/existing`).set({ name: "Northstar Design Studio", normalizedName: "northstar design studio", emails: ["ap@northstar.example"], source: "manual", isSample: false });
     const inv = await upload(WS, "d5", NORTHSTAR);
-    expect(inv).toMatchObject({ reviewStatus: "needs_review", clientId: null, clientEmailRaw: "billing@northstar-demo.example" });
+    expect(inv).toMatchObject({ reviewStatus: "needs_review", clientId: null, clientEmailRaw: "billing@northstar-demo.com" });
     expect(await clientsIn(WS)).toHaveLength(1);
   });
 

@@ -39,7 +39,7 @@ async function seed({ sample = false } = {}) {
   const ws = db.doc(`workspaces/${WS}`);
   await ws.set({ name: "Test", ownerUid: "alice", timezone: "UTC", senderName: "Alice", replyToEmail: "alice@ops.test", dailyCheck: { enabled: false, hourLocal: 9 } });
   await ws.collection("members").doc("alice").set({ role: "owner" });
-  await ws.collection("clients").doc("c1").set({ name: "Acme", normalizedName: "acme", emails: ["ap@acme.test"], source: "manual", isSample: sample });
+  await ws.collection("clients").doc("c1").set({ name: "Acme", normalizedName: "acme", emails: ["ap@acme-corp.com"], source: "manual", isSample: sample });
   const inv: Partial<Invoice> = {
     number: "INV-1",
     clientId: "c1",
@@ -109,17 +109,29 @@ describe("collections workflow", () => {
     expect(draft.body).toContain("INV-1");
     expect(draft.verification.ok).toBe(true);
 
-    vi.mocked(sendEmail).mockResolvedValue({ kind: "sent", providerMessageId: "msg_1", deliveredTo: "ap@acme.test", testMode: false });
+    vi.mocked(sendEmail).mockResolvedValue({ kind: "sent", providerMessageId: "msg_1", deliveredTo: "ap@acme-corp.com", testMode: false });
     await decideApproval(ctx, task.approvalId!, { items: [{ itemId: draft.id, decision: "approve" }] });
     const done = await waitFor(taskId, ["succeeded", "partially_succeeded", "failed"]);
 
     expect(done.status).toBe("succeeded");
     expect(sendEmail).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(sendEmail).mock.calls[0][0]).toMatchObject({ to: "ap@acme.test", idempotencyKey: draft.sendKey });
+    expect(vi.mocked(sendEmail).mock.calls[0][0]).toMatchObject({ to: "ap@acme-corp.com", idempotencyKey: draft.sendKey });
     expect(done.report?.verified[0]).toContain("delivered");
     const inv = (await db.doc(`workspaces/${WS}/invoices/i1`).get()).data() as Invoice;
     expect(inv.reminderStage).toBe("firm"); // 52 days overdue with no prior reminder escalates to firm
     expect(inv.lastRemindedAt).toBeTruthy();
+  });
+
+  it("holds a client whose address can't receive email for review instead of drafting to it", async () => {
+    await seed();
+    await db.doc(`workspaces/${WS}/clients/c1`).update({ emails: ["ap@acme.test"] }); // reserved domain
+    const { taskId, task } = await startCollections();
+    expect(task.status).not.toBe("awaiting_approval");
+    expect(task.approvalId ?? null).toBeNull();
+    const prep = (await steps(taskId)).find((s) => s.tool === "prepare_recipients");
+    const skipped = (prep?.output as { skipped: { reason: string }[] }).skipped;
+    expect(skipped[0].reason).toMatch(/^Needs review: .*reserved example domain/);
+    expect(sendEmail).not.toHaveBeenCalled();
   });
 
   it("re-verifies edited drafts and refuses ones that change the amount", async () => {
@@ -146,7 +158,7 @@ describe("collections workflow", () => {
     const [draft] = await items(task.approvalId!);
     vi.mocked(sendEmail)
       .mockResolvedValueOnce({ kind: "retry", message: "rate limited" })
-      .mockResolvedValueOnce({ kind: "sent", providerMessageId: "msg_2", deliveredTo: "ap@acme.test", testMode: false });
+      .mockResolvedValueOnce({ kind: "sent", providerMessageId: "msg_2", deliveredTo: "ap@acme-corp.com", testMode: false });
     await decideApproval(ctx, task.approvalId!, { items: [{ itemId: draft.id, decision: "approve" }] });
     const done = await waitFor(taskId, ["succeeded", "partially_succeeded", "failed"], 20_000);
     expect(done.status).toBe("succeeded");
