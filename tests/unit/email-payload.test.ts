@@ -64,6 +64,14 @@ describe("final email payload", () => {
     expect(options).toEqual({ idempotencyKey: message.idempotencyKey });
   });
 
+  it("a retried send reuses the same idempotency key, so the provider can't deliver it twice", async () => {
+    setEnv("reminders@opspilot.example", OWNER);
+    await sendEmail(message);
+    await sendEmail(message);
+    expect(sent.map((s) => s.options)).toEqual([{ idempotencyKey: message.idempotencyKey }, { idempotencyKey: message.idempotencyKey }]);
+    expect(sent[0].payload).toEqual(sent[1].payload);
+  });
+
   it("refuses to send when the test recipient is missing or invalid", async () => {
     for (const bad of [undefined, "", "not-an-email", `Shreya <${OWNER}>`]) {
       setEnv("onboarding@resend.dev", bad);

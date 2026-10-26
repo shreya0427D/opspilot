@@ -19,6 +19,8 @@ export const ws = (workspaceId: string, db: Firestore = adminDb()) => {
     approvals: root.collection("approvals"),
     usageDaily: root.collection("usageDaily"),
     auditEvents: root.collection("auditEvents"),
+    /** Addresses that must not be emailed again (hard bounces, spam complaints, provider suppressions). */
+    suppressions: root.collection("suppressions"),
   };
 };
 

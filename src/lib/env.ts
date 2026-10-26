@@ -15,6 +15,8 @@ const serverEnvSchema = z.object({
   EMAIL_FROM: z.string().optional(),
   // Testing mode (EMAIL_FROM=onboarding@resend.dev): the Resend account's own email address.
   EMAIL_TEST_RECIPIENT: z.string().optional(),
+  // Signing secret of the Resend webhook (whsec_…) that reports delivery, bounces and complaints.
+  RESEND_WEBHOOK_SECRET: z.string().optional(),
 
   // Internal endpoints (Cloud Tasks / Scheduler). OIDC in production; shared secret as local fallback.
   CRON_SECRET: z.string().min(32).optional().or(z.literal("").transform(() => undefined)),

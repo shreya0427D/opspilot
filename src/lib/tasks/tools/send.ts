@@ -2,9 +2,11 @@ import "server-only";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { z } from "zod";
 import { formatMinor } from "@/lib/domain/money";
-import type { ApprovalItem, Invoice } from "@/lib/domain/types";
+import type { ApprovalItem, Client, Invoice } from "@/lib/domain/types";
 import { adminDb } from "@/lib/firebase/admin";
 import { emailConfig, lookupEmail, sendEmail } from "@/lib/server/email";
+import { nextProviderStatus, normalizeEmail } from "@/lib/server/recipient";
+import { checkClientRecipient } from "@/lib/server/recipient-store";
 import { audit, recordUsage, ws } from "@/lib/server/workspace-data";
 import { registerTool } from "../registry";
 import { loadWorkspace } from "./shared";
@@ -34,6 +36,7 @@ registerTool({
     const items = await aRef.collection("items").where("status", "in", ["approved", "sending"]).get();
     let sent = 0;
     let failed = 0;
+    let review = 0;
     let transient: string | null = null;
 
     for (const doc of items.docs) {
@@ -60,6 +63,10 @@ registerTool({
         await doc.ref.update({ status: "failed", error });
         failed++;
       };
+      const markReview = async (error: string) => {
+        await doc.ref.update({ status: "needs_review", error });
+        review++;
+      };
 
       if (claim.isSample) {
         await markFailed("Sample data is never sent");
@@ -73,6 +80,17 @@ registerTool({
       const inv = (await col.invoices.doc(claim.invoiceId).get()).data() as Invoice | undefined;
       if (!inv || inv.status === "paid" || inv.status === "void") {
         await markFailed(`Not sent: invoice is ${inv ? inv.status : "deleted"}`);
+        continue;
+      }
+      // Final recipient guard: only an address still saved on this client, and only if it passes.
+      const client = (await col.clients.doc(claim.clientId).get()).data() as Client | undefined;
+      if (!client || !client.emails.some((e) => normalizeEmail(e) === normalizeEmail(claim.to))) {
+        await markReview(`Needs review: ${claim.to} is no longer saved on this client`);
+        continue;
+      }
+      const recipient = await checkClientRecipient(ctx.workspaceId, claim.to);
+      if (!recipient.ok) {
+        await markReview(`Needs review: ${recipient.reason}`);
         continue;
       }
 
@@ -94,6 +112,13 @@ registerTool({
             testMode: outcome.testMode,
             sentAt: FieldValue.serverTimestamp(),
             error: null,
+          });
+          // Lets delivery webhooks find this item from the provider's message id.
+          tx.set(db.doc(`emailMessages/${outcome.providerMessageId}`), {
+            workspaceId: ctx.workspaceId,
+            approvalId,
+            itemId: doc.id,
+            createdAt: FieldValue.serverTimestamp(),
           });
           tx.update(col.invoices.doc(claim.invoiceId), {
             reminderStage: claim.stage,
@@ -118,8 +143,8 @@ registerTool({
 
     if (transient) throw new TransientSendError(transient);
     return {
-      output: { sent, failed },
-      summary: `Sent ${sent} email${sent === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}.`,
+      output: { sent, failed, review },
+      summary: `Sent ${sent} email${sent === 1 ? "" : "s"}${failed ? `, ${failed} failed` : ""}${review ? `, ${review} need review` : ""}.`,
     };
   },
 });
@@ -133,7 +158,14 @@ registerTool({
   async run(ctx, { approvalId }) {
     const aRef = ws(ctx.workspaceId).approvals.doc(approvalId);
     const [approval, itemsSnap] = await Promise.all([aRef.get(), aRef.collection("items").get()]);
-    const report = { verified: [] as string[], failed: [] as string[], skipped: [...((approval.get("skipped") as string[]) ?? [])], needsReview: [] as string[] };
+    const report = {
+      verified: [] as string[],
+      accepted: [] as string[],
+      failed: [] as string[],
+      skipped: [...((approval.get("skipped") as string[]) ?? [])],
+      needsReview: [] as string[],
+    };
+    const TERMINAL = ["bounced", "failed", "suppressed", "complained", "canceled"];
 
     for (const doc of itemsSnap.docs) {
       const item = doc.data() as ApprovalItem;
@@ -142,13 +174,19 @@ registerTool({
         : `${formatMinor(item.amountDueMinor, item.currency)} reminder to ${item.to}`;
       switch (item.status) {
         case "sent": {
-          // Confirm with the provider instead of trusting our own record.
-          const found = item.providerMessageId ? await lookupEmail(item.providerMessageId) : null;
-          if (found) await doc.ref.update({ providerStatus: found.lastEvent });
-          if (!found) report.needsReview.push(`${label}: accepted by the provider but could not be confirmed yet`);
-          else if (["bounced", "failed", "suppressed", "complained", "canceled"].includes(found.lastEvent)) {
-            report.failed.push(`${label}: provider reports "${found.lastEvent}"`);
-          } else report.verified.push(`${label}: provider status "${found.lastEvent}"`);
+          // Delivery webhooks may already have reported; otherwise ask the provider.
+          let event = item.providerStatus ?? null;
+          if (!event || event === "sent" || event === "delivery_delayed") {
+            const found = item.providerMessageId ? await lookupEmail(item.providerMessageId) : null;
+            if (found) {
+              event = nextProviderStatus(event, found.lastEvent);
+              await doc.ref.update({ providerStatus: event });
+            }
+          }
+          if (event === "delivered") report.verified.push(`${label}: delivered`);
+          else if (event && TERMINAL.includes(event)) report.failed.push(`${label}: provider reports "${event}"`);
+          // Accepted by the provider is not proof of delivery; webhooks update the status later.
+          else report.accepted.push(`${label}: accepted by the provider, delivery not confirmed yet`);
           break;
         }
         case "failed":
@@ -157,6 +195,7 @@ registerTool({
         case "rejected":
           report.skipped.push(`${label}: you chose not to send it`);
           break;
+        case "needs_review":
         case "unknown":
         case "sending":
           report.needsReview.push(`${label}: ${item.error ?? "outcome unknown"}`);
@@ -167,14 +206,14 @@ registerTool({
     }
     await aRef.update({ status: "completed" });
 
-    const anyGood = report.verified.length > 0;
+    const anyGood = report.verified.length + report.accepted.length > 0;
     const anyBad = report.failed.length + report.needsReview.length > 0;
     return {
-      output: { counts: { verified: report.verified.length, failed: report.failed.length, needsReview: report.needsReview.length } },
+      output: { counts: { verified: report.verified.length, accepted: report.accepted.length, failed: report.failed.length, needsReview: report.needsReview.length } },
       report,
       verification: anyBad ? "needs_review" : "pass",
       finalStatus: anyBad ? (anyGood ? "partially_succeeded" : "failed") : "succeeded",
-      summary: `${report.verified.length} confirmed sent, ${report.failed.length} failed, ${report.needsReview.length} need your attention, ${report.skipped.length} skipped.`,
+      summary: `${report.verified.length} delivered, ${report.accepted.length} accepted (delivery not yet confirmed), ${report.failed.length} failed, ${report.needsReview.length} need your attention, ${report.skipped.length} skipped.`,
     };
   },
 });

@@ -185,6 +185,8 @@ export interface Task {
 
 export interface TaskReport {
   verified: string[];
+  /** Accepted by the email provider; delivery not confirmed yet. */
+  accepted?: string[];
   failed: string[];
   skipped: string[];
   needsReview: string[];
@@ -234,6 +236,8 @@ export type ApprovalItemStatus =
   | "sending"
   | "sent"
   | "failed"
+  /** Held back before sending: the recipient failed validation or changed. */
+  | "needs_review"
   | "unknown";
 
 export interface Approval {

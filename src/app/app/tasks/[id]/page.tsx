@@ -174,7 +174,8 @@ export default function TaskDetailPage() {
             {t.error && t.status !== "succeeded" && <p className="text-sm text-destructive">{t.error}</p>}
             {report && (
               <>
-                <ReportSection title="Verified" items={report.verified} tone="text-success" />
+                <ReportSection title="Delivered" items={report.verified} tone="text-success" />
+                <ReportSection title="Accepted — awaiting delivery confirmation" items={report.accepted ?? []} tone="text-info" />
                 <ReportSection title="Needs your attention" items={report.needsReview} tone="text-warning" />
                 <ReportSection title="Failed" items={report.failed} tone="text-destructive" />
                 <ReportSection title="Skipped" items={report.skipped} tone="text-muted-foreground" />

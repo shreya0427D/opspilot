@@ -7,6 +7,7 @@ import { personalizeReminders } from "@/lib/ai/prompts";
 import { daysOverdue, todayInZone } from "@/lib/domain/dates";
 import { matchClient } from "@/lib/domain/matching";
 import { formatMinor, totalsByCurrency } from "@/lib/domain/money";
+import { checkClientRecipient } from "@/lib/server/recipient-store";
 import {
   DEFAULT_TEMPLATES,
   factValues,
@@ -123,7 +124,13 @@ registerTool({
       } else if (item.lastRemindedAtMs && Date.now() - item.lastRemindedAtMs < window) {
         skipped.push({ invoiceId: item.invoiceId, number: item.number, reason: "Reminded recently" });
       } else {
-        ready.push({ ...item, clientId: client.id, clientName: client.name, to: client.emails[0], allowedEmails: client.emails });
+        // Only the client's own saved address is ever used; if it fails, nothing is substituted.
+        const recipient = await checkClientRecipient(ctx.workspaceId, client.emails[0]);
+        if (!recipient.ok) {
+          skipped.push({ invoiceId: item.invoiceId, number: item.number, reason: `Needs review: ${recipient.reason}` });
+        } else {
+          ready.push({ ...item, clientId: client.id, clientName: client.name, to: recipient.email, allowedEmails: client.emails });
+        }
       }
     }
     return {
