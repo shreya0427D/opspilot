@@ -2,7 +2,7 @@
 
 import { CornerDownLeftIcon, SparklesIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   Command,
@@ -14,6 +14,7 @@ import {
   CommandSeparator,
 } from "@/components/ui/command";
 import { api, errorMessage } from "@/lib/client/api";
+import { AgentOrb } from "./agent-dock";
 import { NAV } from "./nav";
 
 const SUGGESTIONS = [
@@ -47,10 +48,20 @@ export function useRunCommand() {
   return { run, busy };
 }
 
-export function CommandBar({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function CommandBar({
+  open,
+  onOpenChange,
+  onBusyChange,
+}: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  /** Reports the real submission state so the header agent can show it. */
+  onBusyChange?: (busy: boolean) => void;
+}) {
   const router = useRouter();
   const [text, setText] = useState("");
   const { run, busy } = useRunCommand();
+  useEffect(() => onBusyChange?.(busy), [busy, onBusyChange]);
 
   async function submit(command: string) {
     if (await run(command)) {
@@ -65,6 +76,13 @@ export function CommandBar({ open, onOpenChange }: { open: boolean; onOpenChange
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange} title="Command bar" description="Tell OpsPilot what to do or jump to a page">
       <Command shouldFilter={false}>
+        <div className="flex items-center gap-3 border-b border-border bg-lx-ink px-4 py-3 text-lx-porcelain">
+          <AgentOrb state={busy ? "thinking" : "idle"} size={40} />
+          <div className="min-w-0">
+            <p className="font-display text-lg leading-tight">Ask your agent <span className="italic text-lx-gold-light">to get things done</span></p>
+            <p className="text-xs text-lx-mist" aria-live="polite">{busy ? "Sending your request…" : "Describe the task in plain words, or jump to a page."}</p>
+          </div>
+        </div>
         <CommandInput
           placeholder="e.g. Chase overdue invoices for Acme"
           value={text}

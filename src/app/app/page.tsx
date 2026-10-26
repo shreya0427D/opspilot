@@ -105,7 +105,7 @@ export default function DashboardPage() {
               </Link>
             </p>
           </section>
-          <section aria-labelledby="open-title" className="rounded-xl border border-border bg-card p-6">
+          <section aria-labelledby="open-title" className="lx-lift rounded-xl border border-border bg-card p-6">
             <h2 id="open-title" className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Outstanding · all open</h2>
             <div className="mt-3 space-y-1 font-display text-[1.75rem] leading-tight tabular-nums break-words">
               {invoices.loading ? (
@@ -118,7 +118,7 @@ export default function DashboardPage() {
             </div>
             <p className="mt-4 text-sm text-muted-foreground">Shown per currency, never converted.</p>
           </section>
-          <section aria-labelledby="attention-title" className="rounded-xl border border-border bg-card p-6">
+          <section aria-labelledby="attention-title" className="lx-lift rounded-xl border border-border bg-card p-6">
             <h2 id="attention-title" className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Needs your attention</h2>
             <div className="mt-3 font-display text-[2rem] leading-tight tabular-nums">{approvals.data.length + needsReview.length}</div>
             <div className="mt-3 divide-y divide-border border-t border-border text-sm">

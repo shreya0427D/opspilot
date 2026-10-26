@@ -1,9 +1,8 @@
 "use client";
 
-import { PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { AGENT_LINKS, AGENT_NODES, PLAYBACK, type AgentNode, type NodeId } from "./content";
-import { useReducedMotion } from "./hooks";
+import { useAutoCycle, useHold, useReducedMotion } from "./hooks";
 
 /** Fixed precision so server and client render identical SVG coordinates (avoids hydration mismatches). */
 const f2 = (n: number) => Math.round(n * 100) / 100;
@@ -64,38 +63,35 @@ function NodeShape({ node, selected, related, lit }: { node: AgentNode; selected
   );
 }
 
+const BEAT_MS = 2600;
+
 export function Agents() {
-  const [selected, setSelected] = useState<NodeId>("orchestrator");
-  const [step, setStep] = useState(-1); // -1 = idle
-  const [playing, setPlaying] = useState(false);
+  const [selected, setSelected] = useState<NodeId | null>(null);
+  const { held, hold, focusProps } = useHold();
   const reducedMotion = useReducedMotion();
+  // The sample run loops forever; picking a component (or keyboard focus) holds it briefly to read.
+  const { ref, index: step } = useAutoCycle<HTMLDivElement>(PLAYBACK.length, reducedMotion ? BEAT_MS * 2 : BEAT_MS, held);
+  const pick = (id: NodeId) => {
+    setSelected(id);
+    hold();
+  };
 
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      setStep((s) => {
-        if (s >= PLAYBACK.length - 1) {
-          setPlaying(false);
-          return s;
-        }
-        return s + 1;
-      });
-    }, reducedMotion ? 2600 : 1700);
-    return () => clearInterval(id);
-  }, [playing, reducedMotion]);
-
-  // While a run plays, the panel follows the component receiving the work.
-  const current = step >= 0 ? PLAYBACK[step] : null;
-  const shown = playing && current ? current.to : selected;
+  const current = PLAYBACK[step];
+  // The panel follows the component receiving the work, unless the visitor picked one to read.
+  const shown: NodeId = held && selected ? selected : current.to;
   const related = useMemo(
     () => new Set(AGENT_LINKS.filter(([a, b]) => a === shown || b === shown).flatMap(([a, b]) => [a, b])),
     [shown],
   );
   const node = byId[shown];
-  const token = current ? { from: byId[current.from], to: byId[current.to] } : null;
+  const token = { from: byId[current.from], to: byId[current.to] };
 
   return (
-    <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start">
+    <div
+      ref={ref}
+      className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start"
+      {...focusProps}
+    >
       <div className="relative min-w-0 overflow-x-auto [scrollbar-width:thin]">
         <svg viewBox="0 0 1000 720" className="w-full min-w-[680px]" role="group" aria-label="Agent architecture: the orchestrator connected to document intelligence, research, data analysis, action execution and verification, with Gemini as the model layer and Firebase as the data layer">
           <defs>
@@ -115,8 +111,8 @@ export function Agents() {
             const A = byId[a],
               B = byId[b];
             const isRelated = a === shown || b === shown;
-            const isLive = current && ((current.from === a && current.to === b) || (current.from === b && current.to === a));
-            const forward = current && current.from === a;
+            const isLive = (current.from === a && current.to === b) || (current.from === b && current.to === a);
+            const forward = current.from === a;
             return (
               <line
                 key={`${a}-${b}`}
@@ -129,7 +125,7 @@ export function Agents() {
                 strokeDasharray={isLive || isRelated ? undefined : "4 6"}
                 markerEnd={isLive && forward ? "url(#ag-arrow)" : undefined}
                 markerStart={isLive && !forward ? "url(#ag-arrow)" : undefined}
-                style={{ transition: "stroke 300ms" }}
+                style={{ transition: "stroke 600ms ease, stroke-width 600ms ease" }}
               />
             );
           })}
@@ -140,32 +136,30 @@ export function Agents() {
               tabIndex={0}
               aria-label={`${n.name}: ${n.role}`}
               aria-pressed={shown === n.id}
-              onClick={() => setSelected(n.id)}
+              onClick={() => pick(n.id)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
-                  setSelected(n.id);
+                  pick(n.id);
                 }
               }}
               className="cursor-pointer outline-none [&:focus-visible_polygon]:stroke-[#d9be85]"
             >
-              <NodeShape node={n} selected={shown === n.id} related={related.has(n.id)} lit={!!current && (current.from === n.id || current.to === n.id)} />
+              <NodeShape node={n} selected={shown === n.id} related={related.has(n.id)} lit={current.from === n.id || current.to === n.id} />
             </g>
           ))}
-          {token && (
-            <circle
-              key={step}
-              r="7"
-              fill={C.goldLight}
-              stroke="#fffcf6"
-              strokeWidth="2"
-              style={{
-                offsetPath: `path("M${token.from.x} ${token.from.y} L${token.to.x} ${token.to.y}")`,
-                animation: reducedMotion ? undefined : "agent-token 1.3s cubic-bezier(.65,0,.35,1) forwards",
-                ...(reducedMotion ? { transform: `translate(${token.to.x}px, ${token.to.y}px)` } : {}),
-              }}
-            />
-          )}
+          <circle
+            key={step}
+            r="7"
+            fill={C.goldLight}
+            stroke="#fffcf6"
+            strokeWidth="2"
+            style={{
+              offsetPath: `path("M${token.from.x} ${token.from.y} L${token.to.x} ${token.to.y}")`,
+              animation: reducedMotion ? undefined : "agent-token 1.3s cubic-bezier(.65,0,.35,1) forwards",
+              ...(reducedMotion ? { transform: `translate(${token.to.x}px, ${token.to.y}px)` } : {}),
+            }}
+          />
         </svg>
         <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-[11px] uppercase tracking-[0.16em] text-lx-mist">
           <span className="flex items-center gap-2"><span className="h-px w-6 bg-lx-gold-light" /> Active path</span>
@@ -175,22 +169,24 @@ export function Agents() {
       </div>
 
       <div className="min-w-0 space-y-4">
-        <div className="relative border border-white/10 bg-lx-sapphire/50 p-6" aria-live="polite">
+        <div className="relative border border-white/10 bg-lx-sapphire/50 p-6">
           <span aria-hidden className="absolute inset-x-0 top-0 h-[2px] bg-gradient-to-r from-lx-gold via-lx-gold/60 to-transparent" />
-          <p className="text-[11px] uppercase tracking-[0.22em] text-lx-gold-light">
-            {node.kind === "layer" ? "Platform layer" : node.kind === "core" ? "Coordinator" : "Specialist"}
-          </p>
-          <h3 className="mt-2 font-display text-3xl text-lx-porcelain">{node.name}</h3>
-          <p className="mt-1 text-sm text-lx-mist">{node.role}</p>
-          <p className="mt-4 leading-relaxed text-[#dfe5ec]">{node.body}</p>
+          <div key={shown} className="lx-fade-in">
+            <p className="text-[11px] uppercase tracking-[0.22em] text-lx-gold-light">
+              {node.kind === "layer" ? "Platform layer" : node.kind === "core" ? "Coordinator" : "Specialist"}
+            </p>
+            <h3 className="mt-2 font-display text-3xl text-lx-porcelain">{node.name}</h3>
+            <p className="mt-1 text-sm text-lx-mist">{node.role}</p>
+            <p className="mt-4 leading-relaxed text-[#dfe5ec]">{node.body}</p>
+          </div>
           <div className="mt-5 flex flex-wrap gap-2" role="group" aria-label="Select a component">
             {AGENT_NODES.map((n) => (
               <button
                 key={n.id}
                 type="button"
-                onClick={() => setSelected(n.id)}
-                aria-pressed={selected === n.id}
-                className={`rounded-full border px-3 py-1 text-xs transition-colors focus-visible:outline-2 focus-visible:outline-lx-gold-light ${selected === n.id ? "border-lx-gold text-lx-gold-light" : "border-white/15 text-lx-mist hover:border-white/40"}`}
+                onClick={() => pick(n.id)}
+                aria-pressed={shown === n.id}
+                className={`rounded-full border px-3 py-1 text-xs transition-colors duration-500 focus-visible:outline-2 focus-visible:outline-lx-gold-light ${shown === n.id ? "border-lx-gold text-lx-gold-light" : "border-white/15 text-lx-mist hover:border-white/40"}`}
               >
                 {n.name}
               </button>
@@ -202,39 +198,15 @@ export function Agents() {
           <p className="text-sm font-medium text-lx-porcelain">Sample run: “Chase all overdue invoices”</p>
           <ol className="mt-4 space-y-2 text-sm">
             {PLAYBACK.map((p, i) => (
-              <li key={p.label} className={`flex items-center gap-3 transition-colors ${i === step ? "text-lx-porcelain" : i < step ? "text-lx-mist" : "text-[#7f8ea2]"}`}>
-                <span className={`grid size-5 place-items-center rounded-full text-[10px] ${i < step ? "bg-[#8cc3a0]/20 text-[#a9d6b8]" : i === step ? "bg-lx-gold/25 text-lx-gold-light" : "bg-white/5"}`}>
+              <li key={p.label} aria-current={i === step ? "step" : undefined} className={`flex items-center gap-3 transition-colors duration-500 ${i === step ? "text-lx-porcelain" : i < step ? "text-lx-mist" : "text-[#7f8ea2]"}`}>
+                <span className={`grid size-5 place-items-center rounded-full text-[10px] transition-colors duration-500 ${i < step ? "bg-[#8cc3a0]/20 text-[#a9d6b8]" : i === step ? "bg-lx-gold/25 text-lx-gold-light" : "bg-white/5"}`}>
                   {i < step ? "✓" : i + 1}
                 </span>
                 {p.label}
               </li>
             ))}
           </ol>
-          <div className="mt-5 flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                if (step >= PLAYBACK.length - 1) setStep(-1);
-                setPlaying((p) => !p);
-              }}
-              className="lx-gold inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold-light"
-            >
-              {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
-              {playing ? "Pause" : step >= PLAYBACK.length - 1 ? "Replay run" : step >= 0 ? "Resume" : "Play run"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setPlaying(false);
-                setStep(-1);
-                setSelected("orchestrator");
-              }}
-              className="inline-flex items-center gap-2 rounded-full border border-white/20 px-4 py-2 text-sm text-lx-porcelain transition-colors hover:border-white/45"
-            >
-              <RotateCcwIcon className="size-4" /> Reset
-            </button>
-          </div>
-          <p className="mt-4 text-xs text-lx-mist">Every component shown exists in OpsPilot. This run is a simulation with sample data — no real task runs here.</p>
+          <p className="mt-4 text-xs text-lx-mist">Every component shown exists in OpsPilot. This run plays on its own as a simulation with sample data — no real task runs here.</p>
         </div>
       </div>
     </div>

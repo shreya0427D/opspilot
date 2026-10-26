@@ -1,9 +1,8 @@
 "use client";
 
-import { ChevronLeftIcon, ChevronRightIcon, PauseIcon, PlayIcon, RotateCcwIcon } from "lucide-react";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent } from "react";
 import { STAGES } from "./content";
-import { useReducedMotion } from "./hooks";
+import { useAutoCycle, useHold, useReducedMotion } from "./hooks";
 
 // "From document to done": a connected, dimensional pipeline. Each station is an isometric
 // object (document, data layers, checkpoint, client record, approval card, completed state) on
@@ -93,32 +92,19 @@ function Station({ index, active, done }: { index: number; active: boolean; done
   );
 }
 
+const BEAT_MS = 2800;
+
 export function Workflow() {
-  const [active, setActive] = useState(0);
-  const [playing, setPlaying] = useState(false);
   const [hovered, setHovered] = useState<number | null>(null);
+  const { held, hold, focusProps } = useHold();
   const reducedMotion = useReducedMotion();
+  // Runs by itself: Upload → … → Complete → Upload. A click (or keyboard focus) holds it briefly to read.
+  const { ref, index: active, setIndex } = useAutoCycle<HTMLDivElement>(STAGES.length, reducedMotion ? BEAT_MS * 2 : BEAT_MS, held);
   const tabs = useRef<(HTMLButtonElement | null)[]>([]);
-
-  const go = useCallback((i: number) => setActive(((i % STAGES.length) + STAGES.length) % STAGES.length), []);
   const select = (i: number) => {
-    setPlaying(false);
-    go(i);
+    hold();
+    setIndex(((i % STAGES.length) + STAGES.length) % STAGES.length);
   };
-
-  useEffect(() => {
-    if (!playing) return;
-    const id = setInterval(() => {
-      setActive((a) => {
-        if (a >= STAGES.length - 1) {
-          setPlaying(false);
-          return a;
-        }
-        return a + 1;
-      });
-    }, reducedMotion ? 3200 : 2200);
-    return () => clearInterval(id);
-  }, [playing, reducedMotion]);
 
   // Roving focus for the stage tabs: arrows, Home and End.
   function onTabKey(e: KeyboardEvent<HTMLButtonElement>, i: number) {
@@ -135,7 +121,11 @@ export function Workflow() {
   const focus = hovered ?? active;
 
   return (
-    <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_350px] lg:items-center">
+    <div
+      ref={ref}
+      className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_350px] lg:items-center"
+      {...focusProps}
+    >
       <div className="min-w-0">
         <div className="relative overflow-x-auto pb-2 [scrollbar-width:thin]">
           <span className="absolute left-0 top-0 z-10 rounded-full border border-lx-gold/50 bg-lx-porcelain px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-[0.18em] text-lx-gold-ink">
@@ -147,7 +137,8 @@ export function Workflow() {
             {STATIONS.slice(1).map((s, i) => {
               const prev = STATIONS[i];
               const travelled = i < active;
-              const lit = travelled || i === focus || i + 1 === focus;
+              const next = i === active; // the segment the invoice travels next
+              const lit = travelled || next || i === focus || i + 1 === focus;
               return (
                 <line
                   key={s.id}
@@ -159,7 +150,8 @@ export function Workflow() {
                   strokeWidth="4"
                   strokeLinecap="round"
                   strokeDasharray={travelled ? "0" : "6 8"}
-                  style={{ transition: "stroke 400ms" }}
+                  className={next && !reducedMotion ? "wf-flow" : undefined}
+                  style={{ transition: "stroke 600ms ease" }}
                 />
               );
             })}
@@ -169,19 +161,19 @@ export function Workflow() {
               </g>
             ))}
             {/* travelling marker */}
-            <g style={{ transform: `translate(${marker.x}px, ${marker.y + 70}px)`, transition: reducedMotion ? "none" : "transform 700ms cubic-bezier(.65,0,.35,1)" }}>
-              <circle r="13" fill={C.gold} opacity=".22" />
+            <g style={{ transform: `translate(${marker.x}px, ${marker.y + 70}px)`, transition: reducedMotion ? "none" : "transform 900ms cubic-bezier(.65,0,.35,1)" }}>
+              <circle r="13" fill={C.gold} opacity=".22" className={reducedMotion ? undefined : "wf-pulse"} />
               <circle r="6" fill={C.goldDeep} stroke={C.face} strokeWidth="2" />
             </g>
             {STATIONS.map((s, i) => (
-              <text key={s.id} x={s.x} y={s.y + 140} textAnchor="middle" className="font-sans" fontSize="17" fontWeight={i === active ? 700 : 500} fill={i === active ? C.ink : i === focus ? C.sapphire : "#6e675c"}>
+              <text key={s.id} x={s.x} y={s.y + 140} textAnchor="middle" className="font-sans" fontSize="17" fontWeight={i === active ? 700 : 500} fill={i === active ? C.ink : i === focus ? C.sapphire : "#6e675c"} style={{ transition: "fill 400ms" }}>
                 <tspan fill={i === active ? C.goldDeep : "#a79e8f"} fontWeight="500">{String(i + 1).padStart(2, "0")}</tspan> {s.name}
               </text>
             ))}
           </svg>
         </div>
 
-        {/* Accessible controls: one tab per stage */}
+        {/* Accessible stage tabs: the loop moves the selection; clicking jumps to a stage */}
         <div className="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="Workflow stages">
           {STAGES.map((s, i) => (
             <button
@@ -199,9 +191,7 @@ export function Workflow() {
               onKeyDown={(e) => onTabKey(e, i)}
               onMouseEnter={() => setHovered(i)}
               onMouseLeave={() => setHovered(null)}
-              onFocus={() => setHovered(i)}
-              onBlur={() => setHovered(null)}
-              className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold ${i === active ? "border-lx-sapphire bg-lx-sapphire text-lx-porcelain" : "border-lx-line bg-lx-porcelain text-lx-muted hover:border-lx-gold hover:text-lx-ink"}`}
+              className={`rounded-full border px-3.5 py-1.5 text-sm transition-colors duration-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold ${i === active ? "border-lx-sapphire bg-lx-sapphire text-lx-porcelain" : "border-lx-line bg-lx-porcelain text-lx-muted hover:border-lx-gold hover:text-lx-ink"}`}
             >
               {s.name}
             </button>
@@ -209,46 +199,32 @@ export function Workflow() {
         </div>
       </div>
 
-      <div id="wf-panel" role="tabpanel" aria-labelledby={`wf-tab-${stage.id}`} aria-live="polite" className="relative border border-lx-line bg-lx-porcelain p-6 shadow-[0_30px_60px_-34px_rgba(23,34,48,.45)]">
+      <div id="wf-panel" role="tabpanel" aria-labelledby={`wf-tab-${stage.id}`} className="relative border border-lx-line bg-lx-porcelain p-6 shadow-[0_30px_60px_-34px_rgba(23,34,48,.45)]">
         <span aria-hidden className="absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-lx-gold-deep via-lx-gold to-transparent" />
-        <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-lx-gold-ink">
-          Step {String(active + 1).padStart(2, "0")} / {String(STAGES.length).padStart(2, "0")}
-        </p>
-        <h3 className="mt-2 font-display text-4xl leading-tight text-lx-ink">{stage.name}</h3>
-        <p className="mt-1 text-sm text-lx-muted">{stage.kicker}</p>
-        <p className="mt-4 leading-relaxed text-lx-sapphire">{stage.body}</p>
-        <ul className="mt-4 space-y-2 text-sm text-lx-muted">
-          {stage.detail.map((d) => (
-            <li key={d} className="flex gap-2.5">
-              <span className="mt-[7px] size-1.5 shrink-0 rotate-45 bg-lx-gold" />
-              {d}
-            </li>
+        {/* step progress: one bar per stage */}
+        <div aria-hidden className="mb-4 flex gap-1">
+          {STAGES.map((s, i) => (
+            <span key={s.id} className={`h-[3px] flex-1 rounded-full transition-colors duration-700 ${i <= active ? "bg-lx-gold" : "bg-lx-line"}`} />
           ))}
-        </ul>
-        <div className="mt-6 flex items-center gap-2">
-          <button type="button" onClick={() => select(active - 1)} disabled={active === 0} aria-label="Previous step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire disabled:opacity-35">
-            <ChevronLeftIcon className="size-4" />
-          </button>
-          <button type="button" onClick={() => select(active + 1)} disabled={active === STAGES.length - 1} aria-label="Next step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire disabled:opacity-35">
-            <ChevronRightIcon className="size-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              if (active === STAGES.length - 1) go(0);
-              setPlaying((p) => !p);
-            }}
-            className="ml-auto inline-flex items-center gap-2 rounded-full bg-lx-sapphire px-4 py-2 text-sm font-medium text-lx-porcelain transition-colors hover:bg-lx-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lx-gold"
-          >
-            {playing ? <PauseIcon className="size-4" /> : <PlayIcon className="size-4" />}
-            {playing ? "Pause" : active === STAGES.length - 1 ? "Replay" : "Play"}
-          </button>
-          <button type="button" onClick={() => select(0)} aria-label="Reset to the first step" className="grid size-10 place-items-center rounded-full border border-lx-line text-lx-sapphire transition-colors hover:border-lx-sapphire">
-            <RotateCcwIcon className="size-4" />
-          </button>
+        </div>
+        <div key={stage.id} className="lx-fade-in">
+          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-lx-gold-ink">
+            Step {String(active + 1).padStart(2, "0")} / {String(STAGES.length).padStart(2, "0")}
+          </p>
+          <h3 className="mt-2 font-display text-4xl leading-tight text-lx-ink">{stage.name}</h3>
+          <p className="mt-1 text-sm text-lx-muted">{stage.kicker}</p>
+          <p className="mt-4 leading-relaxed text-lx-sapphire">{stage.body}</p>
+          <ul className="mt-4 space-y-2 text-sm text-lx-muted">
+            {stage.detail.map((d) => (
+              <li key={d} className="flex gap-2.5">
+                <span className="mt-[7px] size-1.5 shrink-0 rotate-45 bg-lx-gold" />
+                {d}
+              </li>
+            ))}
+          </ul>
         </div>
         <p className="mt-5 border-t border-lx-line pt-4 text-xs text-lx-muted">
-          Demonstration of the workflow — no real invoice is being processed here.
+          Demonstration of the workflow — it runs on its own and no real invoice is being processed here.
         </p>
       </div>
     </div>

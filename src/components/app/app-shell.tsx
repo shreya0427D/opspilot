@@ -1,7 +1,7 @@
 "use client";
 
 import { where } from "firebase/firestore";
-import { LogOutIcon, MenuIcon, SettingsIcon, SparklesIcon } from "lucide-react";
+import { LogOutIcon, MenuIcon, SettingsIcon } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
@@ -20,6 +20,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLiveCollection } from "@/lib/client/firestore-hooks";
 import { cn } from "@/lib/utils";
+import { AgentDock } from "./agent-dock";
 import { CommandBar } from "./command-bar";
 import { NAV } from "./nav";
 
@@ -39,10 +40,10 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
             aria-current={active ? "page" : undefined}
             className={cn(
               "group relative flex min-h-10 items-center gap-3 rounded-md px-3 text-sm text-[#b9c4d2] transition-colors hover:bg-white/[0.05] hover:text-[#fffcf6] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#d9be85]",
-              active && "bg-sidebar-accent font-medium text-[#fffcf6]",
+              active && "bg-[linear-gradient(90deg,#24354b,rgba(36,53,75,.45))] font-medium text-[#fffcf6] shadow-[inset_0_1px_0_rgba(255,255,255,.04)]",
             )}
           >
-            <span aria-hidden className={cn("absolute inset-y-2 left-0 w-[2px] rounded-full transition-colors", active ? "bg-[#b89150]" : "bg-transparent")} />
+            <span aria-hidden className={cn("absolute inset-y-2 left-0 w-[2px] rounded-full transition-colors", active ? "bg-[#b89150] shadow-[0_0_10px_rgba(217,190,133,.7)]" : "bg-transparent")} />
             <Icon className={cn("size-4 shrink-0", active ? "text-[#d9be85]" : "text-[#8fa3bc] group-hover:text-[#d9be85]")} aria-hidden />
             <span className="flex-1">{label}</span>
             {pending > 0 ? (
@@ -63,6 +64,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const { user, ready, workspace, dataError, signOut } = useAuth();
   const [menuOpen, setMenuOpen] = useState(false);
   const [commandOpen, setCommandOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   // Server session exists but the browser lost its Firebase sign-in: start over cleanly.
   useEffect(() => {
@@ -122,7 +124,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   );
 
   return (
-    <div className="flex min-h-svh bg-background">
+    <div className="app-canvas flex min-h-svh">
       <aside className="sticky top-0 hidden h-svh w-64 shrink-0 overflow-y-auto border-r border-sidebar-border bg-sidebar lg:block">{sidebar}</aside>
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" className="w-72 max-w-[85vw] overflow-y-auto border-sidebar-border bg-sidebar p-0 text-sidebar-foreground [&_[data-slot=sheet-close]]:text-[#fffcf6]">
@@ -135,19 +137,11 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-30 border-b border-border bg-[#fffcf6]/90 backdrop-blur-md">
-          <div className="flex h-16 items-center gap-3 px-4 sm:px-6 lg:px-10">
+          <div className="flex h-[4.5rem] items-center gap-3 px-4 sm:px-6 lg:px-10">
             <Button variant="ghost" size="icon" className="lg:hidden" aria-label="Open menu" onClick={() => setMenuOpen(true)}>
               <MenuIcon />
             </Button>
-            <button
-              type="button"
-              onClick={() => setCommandOpen(true)}
-              className="group flex h-10 w-full max-w-xl items-center gap-2.5 rounded-full border border-input bg-card px-4 text-left text-sm text-muted-foreground shadow-[inset_0_1px_2px_rgba(23,34,48,.05)] transition-colors hover:border-[#b89150] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-              <SparklesIcon className="size-4 shrink-0 text-[#8a6a35]" aria-hidden />
-              <span className="flex-1 truncate">Tell OpsPilot what to do…</span>
-              <kbd className="hidden rounded-md border border-border bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground/70 sm:inline">Ctrl K</kbd>
-            </button>
+            <AgentDock onOpen={() => setCommandOpen(true)} submitting={submitting} />
             <DropdownMenu>
               <DropdownMenuTrigger
                 className="ml-auto grid size-9 shrink-0 place-items-center rounded-full bg-[#172230] text-sm font-semibold text-[#d9be85] ring-1 ring-[#b89150]/50 transition-shadow hover:ring-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring data-[state=open]:ring-2"
@@ -192,7 +186,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           {children}
         </main>
       </div>
-      <CommandBar open={commandOpen} onOpenChange={setCommandOpen} />
+      <CommandBar open={commandOpen} onOpenChange={setCommandOpen} onBusyChange={setSubmitting} />
     </div>
   );
 }

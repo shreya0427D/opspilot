@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useSyncExternalStore, type RefObject } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 
 const MOTION_QUERY = "(prefers-reduced-motion: reduce)";
 
@@ -46,4 +46,56 @@ export function useScrollVar<T extends HTMLElement>(name = "--progress"): RefObj
     };
   }, [name]);
   return ref;
+}
+
+/**
+ * Advances an index 0 → length-1 and back to 0 on a fixed beat, forever. Pauses while the element
+ * is off-screen (no work for unseen sections) and while `paused` is true (e.g. the visitor is
+ * hovering or focusing inside it, so they can read). Visual demonstration only.
+ */
+export function useAutoCycle<T extends HTMLElement>(length: number, intervalMs: number, paused = false) {
+  const ref = useRef<T>(null);
+  const [index, setIndex] = useState(0);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(([entry]) => setVisible(entry.isIntersecting), { threshold: 0.2 });
+    io.observe(el);
+    return () => io.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible || paused || length < 2) return;
+    const id = setInterval(() => setIndex((i) => (i + 1) % length), intervalMs);
+    return () => clearInterval(id);
+  }, [visible, paused, length, intervalMs]);
+  return { ref, index, setIndex };
+}
+
+/**
+ * A temporary hold for auto-cycling demos: `hold()` pauses for `ms` (restarting the timer on each
+ * call), and keyboard focus inside the container pauses until focus leaves. Plain hovering does not
+ * pause, so the demo keeps running while people read.
+ */
+export function useHold(ms = 8000) {
+  const [timed, setTimed] = useState(false);
+  const [keyboard, setKeyboard] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+  const hold = () => {
+    setTimed(true);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setTimed(false), ms);
+  };
+  const focusProps = {
+    onFocus: (e: React.FocusEvent<HTMLElement>) => {
+      if ((e.target as HTMLElement).matches(":focus-visible")) setKeyboard(true);
+    },
+    onBlur: (e: React.FocusEvent<HTMLElement>) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setKeyboard(false);
+    },
+  };
+  return { held: timed || keyboard, hold, focusProps };
 }
